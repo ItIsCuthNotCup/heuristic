@@ -267,6 +267,56 @@ func TestUsageSummed(t *testing.T) {
 	}
 }
 
+func TestUsageSummedWhenPoolCollapses(t *testing.T) {
+	// All branches come back as tool calls (non-final in ModeFinal), so the
+	// pool collapses to just greedy — but branch tokens were still spent.
+	greedy := messageResponse("r0", "answer")
+	greedy.Usage = llm.Usage{InputTokens: 10, OutputTokens: 5}
+	b1 := toolCallResponse("b1")
+	b1.Usage = llm.Usage{InputTokens: 20, OutputTokens: 8}
+	inner := &fakeInner{responses: []llm.Response{greedy, b1}}
+	judge := &fakeJudge{batches: [][]float64{{0.5}}}
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, NMin: 1, NMax: 1})
+	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ID != "r0" {
+		t.Fatalf("got %q, want r0", resp.ID)
+	}
+	if resp.Usage.InputTokens != 30 || resp.Usage.OutputTokens != 13 {
+		t.Fatalf("usage = %+v, want branch tokens summed", resp.Usage)
+	}
+}
+
+type errJudge struct{ calls atomic.Int32 }
+
+func (e *errJudge) Score(ctx context.Context, problem string, candidates []string) ([]float64, error) {
+	if e.calls.Add(1) == 1 {
+		return []float64{0.5}, nil // greedy score passes through
+	}
+	return nil, errors.New("judge down")
+}
+
+func TestUsageSummedOnJudgeError(t *testing.T) {
+	greedy := messageResponse("r0", "answer")
+	greedy.Usage = llm.Usage{InputTokens: 10, OutputTokens: 5}
+	b1 := messageResponse("b1", "alt")
+	b1.Usage = llm.Usage{InputTokens: 20, OutputTokens: 8}
+	inner := &fakeInner{responses: []llm.Response{greedy, b1}}
+	a := New(inner, Config{Judge: &errJudge{}, Mode: ModeFinal, NMin: 1, NMax: 1})
+	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ID != "r0" {
+		t.Fatalf("got %q, want r0", resp.ID)
+	}
+	if resp.Usage.InputTokens != 30 || resp.Usage.OutputTokens != 13 {
+		t.Fatalf("usage = %+v, want branch tokens summed on judge error", resp.Usage)
+	}
+}
+
 func TestModeAllJudgesToolCallTurns(t *testing.T) {
 	inner := &fakeInner{responses: []llm.Response{
 		toolCallResponse("r0"),

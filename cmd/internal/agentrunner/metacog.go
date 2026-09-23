@@ -25,6 +25,7 @@ type MetaCogRequest struct {
 func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue string) (cfg metacog.Config, judgeName string, err error) {
 	judge := lookupEnv(getenv, "JUDGE")
 	mode := lookupEnv(getenv, "MODE")
+	concurrency := lookupEnv(getenv, "JUDGE_CONCURRENCY")
 	stop := lookupEnv(getenv, "STOP_CONFIDENCE")
 	nMin := lookupEnv(getenv, "N_MIN")
 	nMax := lookupEnv(getenv, "N_MAX")
@@ -72,10 +73,15 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 		cfg.Mode = metacog.ModeOff
 		return cfg, "off", nil
 	case "jev":
+		jc, err := parseConcurrency(concurrency, 8)
+		if err != nil {
+			return cfg, "", err
+		}
 		cfg.Judge = metacog.NewJev(metacog.JevConfig{
-			BaseURL: lookupEnv(getenv, "JUDGE_URL"),
-			APIKey:  jevAPIKey(getenv),
-			Model:   lookupEnv(getenv, "JUDGE_MODEL"),
+			BaseURL:     lookupEnv(getenv, "JUDGE_URL"),
+			APIKey:      jevAPIKey(getenv),
+			Model:       lookupEnv(getenv, "JUDGE_MODEL"),
+			Concurrency: jc,
 		})
 		judgeName = "jev"
 	case "local":
@@ -84,7 +90,11 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 		if url == "" || model == "" {
 			return cfg, "", fmt.Errorf("METACOG_AGENT_JUDGE=local requires METACOG_AGENT_JUDGE_URL and METACOG_AGENT_JUDGE_MODEL")
 		}
-		cfg.Judge = metacog.NewLogprob(metacog.LogprobConfig{BaseURL: url, Model: model})
+		jc, err := parseConcurrency(concurrency, 1)
+		if err != nil {
+			return cfg, "", err
+		}
+		cfg.Judge = metacog.NewLogprob(metacog.LogprobConfig{BaseURL: url, Model: model, Concurrency: jc})
 		judgeName = "local"
 	default:
 		return cfg, "", fmt.Errorf("METACOG_AGENT_JUDGE must be jev, local or off, got %q", judge)
@@ -118,6 +128,17 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 		}
 	}
 	return cfg, judgeName, nil
+}
+
+func parseConcurrency(value string, fallback int) (int, error) {
+	if value == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("METACOG_AGENT_JUDGE_CONCURRENCY must be a positive integer, got %q", value)
+	}
+	return n, nil
 }
 
 // jevAPIKey reads METACOG_AGENT_JEV_API_KEY, then TYPESAFE_API_KEY.

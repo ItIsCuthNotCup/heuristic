@@ -29,6 +29,7 @@ Environment:
 | `METACOG_AGENT_JUDGE` | `jev` if `TYPESAFE_API_KEY` is set, else `off` | `jev` \| `local` \| `off` |
 | `METACOG_AGENT_JUDGE_URL` | `https://api.typesafe.ai` (jev); required for `local` | judge endpoint |
 | `METACOG_AGENT_JUDGE_MODEL` | `jev-latest` | judge model |
+| `METACOG_AGENT_JUDGE_CONCURRENCY` | `8` (jev), `1` (local) | parallel judge requests per pool |
 | `METACOG_AGENT_MODE` | `final` | `final` judges answers only; `all` also judges tool-call turns; `off` disables |
 | `METACOG_AGENT_STOP_CONFIDENCE` | `0.95` | judge score above which the first answer is kept |
 | `METACOG_AGENT_N_MIN` / `N_MAX` | `2` / `6` | branch count bounds, scaled by judge uncertainty |

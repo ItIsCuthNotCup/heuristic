@@ -125,8 +125,13 @@ func (a *Adapter) Respond(ctx context.Context, req llm.Request, opts llm.Request
 		pool = append(pool, resp)
 	}
 	event.PoolSize = len(pool)
+	// From here on every return must carry the summed usage of all inner
+	// calls, not just greedy's — branch tokens were spent either way.
+	usage := sumUsage(greedy.Usage, branches)
+	usage.Raw = nil
 	if len(pool) == 1 {
 		emit()
+		greedy.Usage = usage
 		return greedy, nil
 	}
 
@@ -138,6 +143,7 @@ func (a *Adapter) Respond(ctx context.Context, req llm.Request, opts llm.Request
 	judgeCalls += len(texts)
 	if err != nil || len(textScores) != len(pool) {
 		emit()
+		greedy.Usage = usage
 		return greedy, nil
 	}
 	event.Scores = textScores
@@ -166,8 +172,7 @@ func (a *Adapter) Respond(ctx context.Context, req llm.Request, opts llm.Request
 	emit()
 
 	selected := pool[chosen]
-	selected.Usage = sumUsage(greedy.Usage, branches)
-	selected.Usage.Raw = nil
+	selected.Usage = usage
 	return selected, nil
 }
 

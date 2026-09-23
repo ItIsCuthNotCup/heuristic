@@ -77,6 +77,8 @@ func TestResolveMetaCogInvalidValues(t *testing.T) {
 		{"METACOG_AGENT_JUDGE": "jev", "TYPESAFE_API_KEY": "k", "METACOG_AGENT_STOP_CONFIDENCE": "high"},
 		{"METACOG_AGENT_JUDGE": "jev", "TYPESAFE_API_KEY": "k", "METACOG_AGENT_N_MIN": "two"},
 		{"METACOG_AGENT_JUDGE": "local"},
+		{"METACOG_AGENT_JUDGE": "jev", "TYPESAFE_API_KEY": "k", "METACOG_AGENT_JUDGE_CONCURRENCY": "zero"},
+		{"METACOG_AGENT_JUDGE": "local", "METACOG_AGENT_JUDGE_URL": "u", "METACOG_AGENT_JUDGE_MODEL": "m", "METACOG_AGENT_JUDGE_CONCURRENCY": "0"},
 	}
 	for i, env := range cases {
 		if _, _, err := resolveMetaCog(envFunc(env), nil, ""); err == nil {
