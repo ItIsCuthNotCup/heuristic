@@ -170,9 +170,7 @@ class TrajectoryTests(unittest.TestCase):
             record(9, "turn", {"ID": "turn-3"}),
             record(10, "model_response", response("turn-3", [])),
         ]
-        trajectory = convert(
-            lines, Agent(name="heuristic", version="test"), "session"
-        )
+        trajectory = convert(lines, Agent(name="heuristic", version="test"), "session")
         self.assertEqual(len(trajectory.steps), 4)
         self.assertEqual(trajectory.steps[0].message, '"literal quotes"')
         observations = trajectory.steps[1].observation.results
@@ -260,9 +258,7 @@ class TrajectoryTests(unittest.TestCase):
             ),
             json.dumps({"type": "error", "message": "provider disconnected"}),
         ]
-        trajectory = convert(
-            lines, Agent(name="heuristic", version="test"), "session"
-        )
+        trajectory = convert(lines, Agent(name="heuristic", version="test"), "session")
         self.assertEqual(trajectory.final_metrics.total_prompt_tokens, 10)
         self.assertEqual(trajectory.extra["runner_errors"], ["provider disconnected"])
         self.assertEqual(
