@@ -22,6 +22,7 @@ import (
 	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/coordinator"
 	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/inbox"
 	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/metacog"
 	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/responsesapi"
 	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/operation"
 	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/session"
@@ -85,6 +86,7 @@ type Request struct {
 	IncludePartialMessages *bool            `json:"include_partial_messages"`
 	ExtraAllowedTools      []string         `json:"extra_allowed_tools"`
 	DisallowedTools        []string         `json:"disallowed_tools"`
+	MetaCog                *MetaCogRequest  `json:"metacog"`
 }
 
 type RequestMessage struct {
@@ -184,6 +186,7 @@ func Run(
 	workspaceDirectory := flags.String("workspace", ".", "agent workspace and Bash working directory")
 	logDirectory := flags.String("log-directory", "", "session JSONL log directory; defaults to <workspace>/logs")
 	toolHeartbeatInterval := flags.Duration("tool-heartbeat-interval", 10*time.Minute, "tool-wait heartbeat interval (0 disables)")
+	metacogMode := flags.String("metacog", "", "metacognition mode: off|final|all (off disables the judge wrapper)")
 	if err := flags.Parse(args); err != nil {
 		if usageErr != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -201,6 +204,11 @@ func Run(
 	}
 	if *toolHeartbeatInterval < 0 {
 		return errors.New("tool heartbeat interval must not be negative")
+	}
+	if *metacogMode != "" {
+		if _, err := metacog.ParseMode(*metacogMode); err != nil {
+			return err
+		}
 	}
 
 	if prompt != nil {
@@ -295,6 +303,28 @@ func Run(
 			runErr = errors.Join(runErr, fmt.Errorf("close %s client: %w", selected.Name, err))
 		}
 	}()
+
+	mcConfig, mcJudge, err := resolveMetaCog(getenv, parsed.MetaCog, *metacogMode)
+	if err != nil {
+		return err
+	}
+	var llmAdapter llm.Adapter = client
+	if mcConfig.Mode != metacog.ModeOff && mcConfig.Judge != nil {
+		if _, err := fmt.Fprintf(flagOutput, "metacog: judge=%s mode=%s\n", mcJudge, mcConfig.Mode); err != nil {
+			return fmt.Errorf("write metacog notice: %w", err)
+		}
+		var traceMu sync.Mutex
+		mcConfig.Trace = func(event metacog.Event) {
+			encoded, err := json.Marshal(event)
+			if err != nil {
+				return
+			}
+			traceMu.Lock()
+			defer traceMu.Unlock()
+			fmt.Fprintf(flagOutput, "metacog %s\n", encoded)
+		}
+		llmAdapter = metacog.New(client, mcConfig)
+	}
 
 	storeDirectory, err := filepath.Abs(strings.TrimSpace(*sessionDirectory))
 	if err != nil {
@@ -444,7 +474,7 @@ func Run(
 		Restored:              restored,
 		Sessions:              store,
 		ContextBuilder:        builder,
-		LLM:                   client,
+		LLM:                   llmAdapter,
 		Tools:                 registry,
 		Operations:            operations,
 	})

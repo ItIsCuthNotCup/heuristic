@@ -1,6 +1,47 @@
-# Unreal Agent
+# MetaCog Agent
 
-An async-first agent harness from Unreal Labs.
+An async-first agent harness — a fork of [Unreal Agent](https://github.com/unreallabsai/unreal-agent)
+by Unreal Labs (MIT) — with built-in inference-time metacognition. On answer
+turns, a judge (TypeSafe's Jev/System-One, or any local open model via
+logprobs) scores the model's answer; if it is not confident the agent writes
+2–6 more thought paths in parallel, scores them and their bare final answers,
+and returns the best. Routine tool-call turns are untouched, so Unreal
+Agent's cost profile is preserved.
+
+Install:
+
+```sh
+go install github.com/ItIsCuthNotCup/MetaCog-Agent/cmd/metacog-agent@latest
+```
+
+Quick start:
+
+```sh
+export OPENAI_API_KEY="..."       # the agent model
+export TYPESAFE_API_KEY="..."     # the Jev judge (omit for judge=off)
+metacog-agent -p 'Solve this task.'
+```
+
+Environment:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `METACOG_AGENT_JUDGE` | `jev` if `TYPESAFE_API_KEY` is set, else `off` | `jev` \| `local` \| `off` |
+| `METACOG_AGENT_JUDGE_URL` | `https://api.typesafe.ai` (jev); required for `local` | judge endpoint |
+| `METACOG_AGENT_JUDGE_MODEL` | `jev-latest` | judge model |
+| `METACOG_AGENT_MODE` | `final` | `final` judges answers only; `all` also judges tool-call turns; `off` disables |
+| `METACOG_AGENT_STOP_CONFIDENCE` | `0.95` | judge score above which the first answer is kept |
+| `METACOG_AGENT_N_MIN` / `N_MAX` | `2` / `6` | branch count bounds, scaled by judge uncertainty |
+| `METACOG_AGENT_ANSWER_PRIOR` | `0.5` (`none` disables) | weight of the bare-answer score |
+| `METACOG_AGENT_JEV_API_KEY` | falls back to `TYPESAFE_API_KEY` | Jev key |
+| `UNREAL_HARNESS_*` | — | upstream names still work as fallbacks |
+
+Measured (from [MetaCog](https://github.com/ItIsCuthNotCup/MetaCog) v0.3 on
+single-answer benchmarks): 81.7% → 86.7%, +11/−2, p=0.02 on 180 paired
+GPQA/AIME rows; agentic benchmarks not yet measured. See that repo for the
+method and evidence.
+
+## Harness (from Unreal Agent)
 
 - [harness/](harness/) — the library.
 - [cmd/](cmd/) — executables that use the library.
