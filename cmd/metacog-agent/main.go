@@ -1,4 +1,4 @@
-// Command unreal-agent-runner executes one JSON request and writes persisted session items as JSONL.
+// Command metacog-agent executes one JSON request and writes persisted session items as JSONL.
 package main
 
 import (
@@ -6,7 +6,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/unreallabsai/unreal-agent/cmd/internal/agentrunner"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/cmd/internal/agentrunner"
 )
 
 func main() {
@@ -16,7 +16,7 @@ func main() {
 		ctx, os.Args[1:], os.Getenv, os.Environ,
 		os.Stdin, os.Stdout, os.Stderr,
 		agentrunner.Config{
-			Name:         "unreal-agent-runner",
+			Name:         "metacog-agent",
 			ParseRequest: parseRequest,
 			Providers:    agentrunner.DefaultProviders(),
 		},

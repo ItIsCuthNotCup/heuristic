@@ -5,7 +5,7 @@
 /logs/
 /jobs/
 /benchmarks/harbor/jobs/
-/unreal-agent-runner
+/metacog-agent
 /go.work
 /go.work.sum
 .env

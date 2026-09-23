@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/unreallabsai/unreal-agent/cmd/internal/agentrunner"
-	"github.com/unreallabsai/unreal-agent/harness/tool"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/cmd/internal/agentrunner"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool"
 )
 
 func TestParseRequestConfiguresStaticTools(t *testing.T) {
@@ -52,7 +52,7 @@ func TestRunnerRejectsUnsupportedRequests(t *testing.T) {
 			t.Fatal("unsupported request reached environment setup")
 			return ""
 		}, func() []string { return nil }, strings.NewReader(input), io.Discard, &stderr,
-			agentrunner.Config{Name: "unreal-agent-runner", ParseRequest: parseRequest})
+			agentrunner.Config{Name: "metacog-agent", ParseRequest: parseRequest})
 		if code != 1 || !strings.Contains(stderr.String(), "unknown object member") {
 			t.Fatalf("request = %s, exit = %d, stderr = %s", input, code, stderr.String())
 		}

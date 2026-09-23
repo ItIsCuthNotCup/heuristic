@@ -20,7 +20,7 @@ import (
 	_ "golang.org/x/image/tiff"
 	_ "golang.org/x/image/webp"
 
-	"github.com/unreallabsai/unreal-agent/harness/primitives"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/primitives"
 )
 
 const (

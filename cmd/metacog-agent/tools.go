@@ -4,8 +4,8 @@ import (
 	"context"
 	"io"
 
-	"github.com/unreallabsai/unreal-agent/cmd/internal/agentrunner"
-	"github.com/unreallabsai/unreal-agent/harness/tool"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/cmd/internal/agentrunner"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool"
 )
 
 func parseRequest(input io.Reader) (agentrunner.Request, agentrunner.ToolFactory, error) {

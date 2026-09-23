@@ -1,7 +1,7 @@
 .PHONY: build test check
 
 build:
-	go build -trimpath -o bin/unreal-agent-runner ./cmd/unreal-agent-runner
+	go build -trimpath -o bin/metacog-agent ./cmd/metacog-agent
 
 test:
 	go test -race ./...

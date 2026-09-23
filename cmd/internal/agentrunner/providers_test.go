@@ -54,7 +54,7 @@ func TestRunnerProviderRetries(t *testing.T) {
 						}
 					}, func() []string { return nil },
 					strings.NewReader(`{"prompt":"hello","model":"test","max_attempts":`+strconv.Itoa(maxAttempts)+`}`),
-					io.Discard, io.Discard, Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: DefaultProviders()})
+					io.Discard, io.Discard, Config{Name: "metacog-agent", ParseRequest: parseTestRequest, Providers: DefaultProviders()})
 				if code != 1 || attempts.Load() != int64(maxAttempts) {
 					t.Fatalf("exit = %d, attempts = %d, want %d", code, attempts.Load(), maxAttempts)
 				}
@@ -101,7 +101,7 @@ func TestRunnerCodexUsesSubscriptionWithoutAPIKey(t *testing.T) {
 			"OPENAI_CODEX_ACCESS_TOKEN":   "subscription-token",
 			"OPENAI_CODEX_ACCOUNT_ID":     "account",
 		}[key]
-	}, func() []string { return nil }, strings.NewReader(`{"prompt":"hello","model":"gpt-test","system_prompt":"my system prompt"}`), &output, &stderr, Config{Name: "unreal-agent-runner", ParseRequest: parseTestRequest, Providers: DefaultProviders()})
+	}, func() []string { return nil }, strings.NewReader(`{"prompt":"hello","model":"gpt-test","system_prompt":"my system prompt"}`), &output, &stderr, Config{Name: "metacog-agent", ParseRequest: parseTestRequest, Providers: DefaultProviders()})
 	if code != 0 || !strings.Contains(output.String(), "subscription works") {
 		t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
 	}

@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/unreallabsai/unreal-agent/harness/llm"
-	"github.com/unreallabsai/unreal-agent/harness/llm/clients/fireworks"
-	"github.com/unreallabsai/unreal-agent/harness/llm/clients/openai"
-	"github.com/unreallabsai/unreal-agent/harness/llm/clients/openaicodex"
-	"github.com/unreallabsai/unreal-agent/harness/llm/clients/openrouter"
-	"github.com/unreallabsai/unreal-agent/harness/llm/responsesapi"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/clients/fireworks"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/clients/openai"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/clients/openaicodex"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/clients/openrouter"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/responsesapi"
 )
 
 type streamingClient interface {

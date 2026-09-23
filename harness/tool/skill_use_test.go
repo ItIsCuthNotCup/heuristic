@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/unreallabsai/unreal-agent/harness/llm"
-	"github.com/unreallabsai/unreal-agent/harness/operation"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/operation"
 )
 
 func TestSkillUseLoadsRegisteredSkillByName(t *testing.T) {

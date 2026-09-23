@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/unreallabsai/unreal-agent/harness/inbox"
-	"github.com/unreallabsai/unreal-agent/harness/llm"
-	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
-	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/inbox"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore/localfile"
 )
 
 func TestRunResumesAfterOutputFailure(t *testing.T) {

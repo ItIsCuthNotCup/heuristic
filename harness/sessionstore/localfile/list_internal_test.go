@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/unreallabsai/unreal-agent/harness/session"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/session"
 )
 
 func TestListSessionEntriesSkipsRemovedFiles(t *testing.T) {

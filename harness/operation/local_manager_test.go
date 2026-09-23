@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/unreallabsai/unreal-agent/harness/operation"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/operation"
 )
 
 func TestLocalOperationManagerRunsShellOperation(t *testing.T) {

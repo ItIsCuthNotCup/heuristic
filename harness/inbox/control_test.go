@@ -5,8 +5,8 @@ import (
 	"encoding/json/v2"
 	"testing"
 
-	"github.com/unreallabsai/unreal-agent/harness/inbox"
-	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/inbox"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
 )
 
 func TestInboxControlMessages(t *testing.T) {

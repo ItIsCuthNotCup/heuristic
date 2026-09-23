@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
 )
 
 const fallbackMessage = `{"id":"msg-1","type":"message","status":"completed","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"fallback"}]}`

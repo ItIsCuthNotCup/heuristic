@@ -15,10 +15,10 @@ import (
 
 	"golang.org/x/image/bmp"
 
-	"github.com/unreallabsai/unreal-agent/harness/llm"
-	"github.com/unreallabsai/unreal-agent/harness/operation"
-	"github.com/unreallabsai/unreal-agent/harness/tool"
-	"github.com/unreallabsai/unreal-agent/harness/tool/viewimage"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/operation"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool/viewimage"
 )
 
 type recordingContext struct {

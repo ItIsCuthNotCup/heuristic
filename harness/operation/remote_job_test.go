@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/unreallabsai/unreal-agent/harness/operation"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/operation"
 )
 
 func TestNewRemoteJobSpecRoundTripsPlan(t *testing.T) {

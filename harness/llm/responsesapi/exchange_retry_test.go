@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
 )
 
 func TestExchangeRestartsFailedGeneration(t *testing.T) {

@@ -40,7 +40,7 @@ class ScriptedEnvironment:
 
 
 def make_agent(directory: Path) -> UnrealAgent:
-    (directory / "unreal-agent-runner").write_bytes(b"runner")
+    (directory / "metacog-agent").write_bytes(b"runner")
     (directory / "manifest.json").write_text(
         json.dumps(
             {

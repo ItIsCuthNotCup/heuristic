@@ -7,9 +7,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/unreallabsai/unreal-agent/harness/inbox"
-	"github.com/unreallabsai/unreal-agent/harness/llm"
-	"github.com/unreallabsai/unreal-agent/harness/tool"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/inbox"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool"
 )
 
 // ToolCallRunningPayload is the result a running call shows until it completes.

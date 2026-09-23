@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/unreallabsai/unreal-agent/harness/session"
-	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/session"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore"
 )
 
 func (store *Store) ListSessions(ctx context.Context) ([]sessionstore.SessionInfo, error) {

@@ -190,7 +190,7 @@ class ViewImageTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             trajectory = convert(
                 lines,
-                Agent(name="unreal-agent", version="test"),
+                Agent(name="metacog-agent", version="test"),
                 "session",
                 output_dir=Path(directory),
             )

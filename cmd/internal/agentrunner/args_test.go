@@ -12,7 +12,7 @@ import (
 	"testing"
 	"testing/iotest"
 
-	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
 )
 
 func TestRunMainRequestSources(t *testing.T) {

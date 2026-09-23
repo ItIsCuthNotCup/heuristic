@@ -1,4 +1,4 @@
-module github.com/unreallabsai/unreal-agent
+module github.com/ItIsCuthNotCup/MetaCog-Agent
 
 go 1.27.0
 

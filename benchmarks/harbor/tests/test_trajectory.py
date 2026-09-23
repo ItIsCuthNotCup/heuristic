@@ -171,7 +171,7 @@ class TrajectoryTests(unittest.TestCase):
             record(10, "model_response", response("turn-3", [])),
         ]
         trajectory = convert(
-            lines, Agent(name="unreal-agent", version="test"), "session"
+            lines, Agent(name="metacog-agent", version="test"), "session"
         )
         self.assertEqual(len(trajectory.steps), 4)
         self.assertEqual(trajectory.steps[0].message, '"literal quotes"')
@@ -210,7 +210,7 @@ class TrajectoryTests(unittest.TestCase):
                     record(6, "turn", {"ID": "turn-2"}),
                 ]
                 trajectory = convert(
-                    lines, Agent(name="unreal-agent", version="test"), "session"
+                    lines, Agent(name="metacog-agent", version="test"), "session"
                 )
                 observations = trajectory.steps[0].observation.results
                 self.assertEqual(len(observations), 3)
@@ -232,7 +232,7 @@ class TrajectoryTests(unittest.TestCase):
     def test_malformed_record_is_an_error_including_partial_final_line(self):
         for lines in (["{"], ['{"Kind":']):
             with self.assertRaisesRegex(ValueError, "line 1"):
-                convert(lines, Agent(name="unreal-agent", version="test"), "session")
+                convert(lines, Agent(name="metacog-agent", version="test"), "session")
 
     def test_validation_error_and_incomplete_run_keep_usage(self):
         lines = [
@@ -261,7 +261,7 @@ class TrajectoryTests(unittest.TestCase):
             json.dumps({"type": "error", "message": "provider disconnected"}),
         ]
         trajectory = convert(
-            lines, Agent(name="unreal-agent", version="test"), "session"
+            lines, Agent(name="metacog-agent", version="test"), "session"
         )
         self.assertEqual(trajectory.final_metrics.total_prompt_tokens, 10)
         self.assertEqual(trajectory.extra["runner_errors"], ["provider disconnected"])

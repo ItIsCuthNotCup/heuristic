@@ -18,18 +18,18 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/unreallabsai/unreal-agent/harness/contextbuilder"
-	"github.com/unreallabsai/unreal-agent/harness/coordinator"
-	"github.com/unreallabsai/unreal-agent/harness/inbox"
-	"github.com/unreallabsai/unreal-agent/harness/llm"
-	"github.com/unreallabsai/unreal-agent/harness/llm/responsesapi"
-	"github.com/unreallabsai/unreal-agent/harness/operation"
-	"github.com/unreallabsai/unreal-agent/harness/session"
-	"github.com/unreallabsai/unreal-agent/harness/sessionstore"
-	"github.com/unreallabsai/unreal-agent/harness/sessionstore/localfile"
-	"github.com/unreallabsai/unreal-agent/harness/tool"
-	"github.com/unreallabsai/unreal-agent/harness/tool/bash"
-	"github.com/unreallabsai/unreal-agent/harness/tool/viewimage"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/contextbuilder"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/coordinator"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/inbox"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/responsesapi"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/operation"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/session"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore/localfile"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool/bash"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool/viewimage"
 )
 
 const (
@@ -41,6 +41,18 @@ const (
 	llmProviderEnvironment    = "UNREAL_HARNESS_LLM_PROVIDER"
 	llmMaxAttemptsEnvironment = "UNREAL_HARNESS_LLM_MAX_ATTEMPTS"
 )
+
+// lookupEnv reads the METACOG_AGENT_ equivalent of an environment name first,
+// then falls back to the upstream name so existing deployments keep working:
+// lookupEnv(getenv, "UNREAL_HARNESS_LLM_MODEL") checks
+// METACOG_AGENT_LLM_MODEL, then UNREAL_HARNESS_LLM_MODEL.
+func lookupEnv(getenv func(string) string, name string) string {
+	suffix, _ := strings.CutPrefix(name, "UNREAL_HARNESS_")
+	if value := strings.TrimSpace(getenv("METACOG_AGENT_" + suffix)); value != "" {
+		return value
+	}
+	return getenv(name)
+}
 
 const defaultSystemPrompt = `You are an AI agent running inside an isolated sandbox container.
 
@@ -237,7 +249,7 @@ func Run(
 	if err != nil {
 		return err
 	}
-	providerName := strings.TrimSpace(getenv(llmProviderEnvironment))
+	providerName := strings.TrimSpace(lookupEnv(getenv, llmProviderEnvironment))
 	if providerName == "" {
 		providerName = defaultProvider
 	}
@@ -245,14 +257,14 @@ func Run(
 	if err != nil {
 		return err
 	}
-	configuredBaseURL := strings.TrimSpace(getenv(llmBaseURLEnvironment))
+	configuredBaseURL := strings.TrimSpace(lookupEnv(getenv, llmBaseURLEnvironment))
 	if configuredBaseURL == "" {
 		configuredBaseURL = selected.BaseURL
 	}
 
 	model := strings.TrimSpace(parsed.Model)
 	if model == "" {
-		model = strings.TrimSpace(getenv(llmModelEnvironment))
+		model = strings.TrimSpace(lookupEnv(getenv, llmModelEnvironment))
 	}
 	if model == "" {
 		model = selected.DefaultModel
@@ -262,9 +274,9 @@ func Run(
 	}
 	var apiKey string
 	if selected.APIKeyEnvironment != "" {
-		apiKey = getenv(llmAPIKeyEnvironment)
+		apiKey = lookupEnv(getenv, llmAPIKeyEnvironment)
 		if strings.TrimSpace(apiKey) == "" {
-			apiKey = getenv(selected.APIKeyEnvironment)
+			apiKey = lookupEnv(getenv, selected.APIKeyEnvironment)
 		}
 		if strings.TrimSpace(apiKey) == "" {
 			return fmt.Errorf(
@@ -450,7 +462,7 @@ func resolveMaxAttempts(requested *int, getenv func(string) string) (int, error)
 	maxAttempts := responsesapi.DefaultMaxAttempts
 	if requested != nil {
 		maxAttempts = *requested
-	} else if value := strings.TrimSpace(getenv(llmMaxAttemptsEnvironment)); value != "" {
+	} else if value := strings.TrimSpace(lookupEnv(getenv, llmMaxAttemptsEnvironment)); value != "" {
 		parsed, err := strconv.Atoi(value)
 		if err != nil {
 			return 0, fmt.Errorf("parse %s: %w", llmMaxAttemptsEnvironment, err)

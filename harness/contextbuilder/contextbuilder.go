@@ -2,8 +2,8 @@
 package contextbuilder
 
 import (
-	"github.com/unreallabsai/unreal-agent/harness/inbox"
-	"github.com/unreallabsai/unreal-agent/harness/llm"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/inbox"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
 )
 
 type ChangeKind string

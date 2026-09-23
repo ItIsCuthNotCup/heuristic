@@ -64,12 +64,12 @@ class UnrealAgent(BaseInstalledAgent):
         self._bundle = Bundle.load(bundle)
         self._thinking_level = thinking_level
         self._runner_session = str(uuid4())
-        self._remote = PurePosixPath("/installed-agent/unreal-agent")
+        self._remote = PurePosixPath("/installed-agent/metacog-agent")
 
     @staticmethod
     @override
     def name() -> str:
-        return "unreal-agent"
+        return "metacog-agent"
 
     @override
     def version(self) -> str:

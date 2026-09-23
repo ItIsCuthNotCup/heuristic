@@ -87,5 +87,5 @@ jobs:
           enable-cache: false
       - run: make -C benchmarks/harbor test check build BUNDLE=../../bin/harbor/ci
       - run: make -C benchmarks/harbor smoke BUNDLE=../../bin/harbor/ci
-      - run: docker build -t unreal-agent-ci .
-      - run: docker run --rm unreal-agent-ci -h
+      - run: docker build -t metacog-agent-ci .
+      - run: docker run --rm metacog-agent-ci -h

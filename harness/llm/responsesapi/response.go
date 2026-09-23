@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/unreallabsai/unreal-agent/harness/llm"
-	"github.com/unreallabsai/unreal-agent/internal/openaiapi"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
+	"github.com/ItIsCuthNotCup/MetaCog-Agent/internal/openaiapi"
 )
 
 func decodeResponse(body []byte) (llm.Response, error) {

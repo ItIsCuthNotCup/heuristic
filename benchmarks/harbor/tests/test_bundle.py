@@ -16,7 +16,7 @@ class BundleTests(unittest.TestCase):
     def test_changed_binary_is_rejected_after_construction(self):
         with TemporaryDirectory() as temporary:
             path = Path(temporary)
-            (path / "unreal-agent-runner").write_bytes(b"original")
+            (path / "metacog-agent").write_bytes(b"original")
             (path / "manifest.json").write_text(
                 json.dumps(
                     {
@@ -33,7 +33,7 @@ class BundleTests(unittest.TestCase):
                 bundle=temporary, logs_dir=path, model_name="openai/test"
             )
             self.assertEqual(agent.version(), "a" * 40)
-            (path / "unreal-agent-runner").write_bytes(b"replacement")
+            (path / "metacog-agent").write_bytes(b"replacement")
             with self.assertRaisesRegex(ValueError, "checksum"):
                 bundle.read_binary()
             with self.assertRaisesRegex(ValueError, "checksum"):
@@ -42,7 +42,7 @@ class BundleTests(unittest.TestCase):
     def test_bad_trajectory_is_not_silently_accepted(self):
         with TemporaryDirectory() as temporary:
             path = Path(temporary)
-            (path / "unreal-agent-runner").write_bytes(b"runner")
+            (path / "metacog-agent").write_bytes(b"runner")
             (path / "manifest.json").write_text(
                 json.dumps(
                     {
@@ -64,7 +64,7 @@ class BundleTests(unittest.TestCase):
     def test_missing_runner_log_is_recorded_not_raised(self):
         with TemporaryDirectory() as temporary:
             path = Path(temporary)
-            (path / "unreal-agent-runner").write_bytes(b"runner")
+            (path / "metacog-agent").write_bytes(b"runner")
             (path / "manifest.json").write_text(
                 json.dumps(
                     {
@@ -88,7 +88,7 @@ class BundleTests(unittest.TestCase):
     def test_provider_keys_and_nested_model_paths(self):
         with TemporaryDirectory() as temporary:
             path = Path(temporary)
-            (path / "unreal-agent-runner").write_bytes(b"runner")
+            (path / "metacog-agent").write_bytes(b"runner")
             (path / "manifest.json").write_text(
                 json.dumps(
                     {
@@ -137,7 +137,7 @@ class TaskCapabilityTests(unittest.TestCase):
     def test_task_mcp_servers_and_skills_are_recorded_not_rejected(self):
         with TemporaryDirectory() as temporary:
             path = Path(temporary)
-            (path / "unreal-agent-runner").write_bytes(b"runner")
+            (path / "metacog-agent").write_bytes(b"runner")
             (path / "manifest.json").write_text(
                 json.dumps(
                     {
