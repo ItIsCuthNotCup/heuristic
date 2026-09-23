@@ -5,8 +5,8 @@ import (
 	"testing"
 	"uuid"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/operation"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/operation"
 )
 
 type fixedTranslator struct {

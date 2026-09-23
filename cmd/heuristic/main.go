@@ -1,4 +1,4 @@
-// Command metacog-agent executes one JSON request and writes persisted session items as JSONL.
+// Command heuristic executes one JSON request and writes persisted session items as JSONL.
 package main
 
 import (
@@ -6,7 +6,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/cmd/internal/agentrunner"
+	"github.com/ItIsCuthNotCup/heuristic/cmd/internal/agentrunner"
 )
 
 func main() {
@@ -16,7 +16,7 @@ func main() {
 		ctx, os.Args[1:], os.Getenv, os.Environ,
 		os.Stdin, os.Stdout, os.Stderr,
 		agentrunner.Config{
-			Name:         "metacog-agent",
+			Name:         "heuristic",
 			ParseRequest: parseRequest,
 			Providers:    agentrunner.DefaultProviders(),
 		},

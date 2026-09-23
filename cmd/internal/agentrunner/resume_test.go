@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/inbox"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore/localfile"
+	"github.com/ItIsCuthNotCup/heuristic/harness/inbox"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/sessionstore"
+	"github.com/ItIsCuthNotCup/heuristic/harness/sessionstore/localfile"
 )
 
 func TestRunResumesAfterOutputFailure(t *testing.T) {

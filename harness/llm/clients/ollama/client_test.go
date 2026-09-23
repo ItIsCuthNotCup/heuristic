@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
 )
 
 func TestClientUsesResponsesWithoutAuthentication(t *testing.T) {

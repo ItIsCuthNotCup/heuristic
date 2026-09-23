@@ -5,7 +5,7 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/primitives"
+	"github.com/ItIsCuthNotCup/heuristic/harness/primitives"
 )
 
 var ErrUnsupported = errors.New("unsupported operation")

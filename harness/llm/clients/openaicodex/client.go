@@ -9,9 +9,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/responsesapi"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/primitives"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/responsesapi"
+	"github.com/ItIsCuthNotCup/heuristic/harness/primitives"
 )
 
 const BaseURL = "https://chatgpt.com/backend-api/codex"
@@ -56,8 +56,8 @@ func NewClient(config Config) (*Client, error) {
 			"Authorization":      {"Bearer " + credentials.accessToken},
 			"ChatGPT-Account-ID": {credentials.accountID},
 			"Content-Type":       {"application/json"},
-			"originator":         {"metacog-agent"},
-			"User-Agent":         {"metacog-agent"},
+			"originator":         {"heuristic"},
+			"User-Agent":         {"heuristic"},
 		},
 		CacheKeyPlacement: responsesapi.CacheKeyPlacement{UsePromptCacheKeyField: true, Header: "session-id"},
 		MaxAttempts:       config.MaxAttempts,

@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/primitives"
+	"github.com/ItIsCuthNotCup/heuristic/harness/primitives"
 )
 
 func TestViewImageDispatchesComputeAndRecoveryRereads(t *testing.T) {

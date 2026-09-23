@@ -6,11 +6,11 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/inbox"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/operation"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/session"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool"
+	"github.com/ItIsCuthNotCup/heuristic/harness/inbox"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/operation"
+	"github.com/ItIsCuthNotCup/heuristic/harness/session"
+	"github.com/ItIsCuthNotCup/heuristic/harness/tool"
 )
 
 type Sequence uint64

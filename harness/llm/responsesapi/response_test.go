@@ -4,7 +4,7 @@ import (
 	"encoding/json/v2"
 	"testing"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
 )
 
 func TestResponseConvertsWebSearchResponse(t *testing.T) {

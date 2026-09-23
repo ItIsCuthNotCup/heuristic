@@ -9,7 +9,7 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/primitives"
+	"github.com/ItIsCuthNotCup/heuristic/harness/primitives"
 )
 
 func TestLocalOperationManagerDispatchesComputeAndDrainsAfterCancellation(t *testing.T) {

@@ -9,10 +9,10 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/operation"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool/bash"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/operation"
+	"github.com/ItIsCuthNotCup/heuristic/harness/tool"
+	"github.com/ItIsCuthNotCup/heuristic/harness/tool/bash"
 )
 
 func TestOutputLengthMaximumMatchesToolSchemas(t *testing.T) {

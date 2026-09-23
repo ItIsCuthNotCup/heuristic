@@ -25,7 +25,7 @@ def build(revision: str, output: Path, arch: str, runner: str) -> None:
         archive.flush()
         with tarfile.open(archive.name) as tree:
             tree.extractall(source, filter="data")
-        binary = source / "metacog-agent"
+        binary = source / "heuristic"
         subprocess.run(
             [
                 "go",
@@ -50,8 +50,8 @@ def build(revision: str, output: Path, arch: str, runner: str) -> None:
             "go_version": subprocess.check_output(["go", "version"], text=True).strip(),
         }
         output.mkdir(parents=True)
-        (output / "metacog-agent").write_bytes(data)
-        (output / "metacog-agent").chmod(0o755)
+        (output / "heuristic").write_bytes(data)
+        (output / "heuristic").chmod(0o755)
         (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"Built {commit} ({manifest['sha256']}) in {output}")
 
@@ -61,8 +61,8 @@ if __name__ == "__main__":
     parser.add_argument("--revision", default="HEAD")
     parser.add_argument(
         "--runner",
-        default="metacog-agent",
-        help="runner command (default: metacog-agent)",
+        default="heuristic",
+        help="runner command (default: heuristic)",
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--arch", choices=("amd64", "arm64"), default="amd64")

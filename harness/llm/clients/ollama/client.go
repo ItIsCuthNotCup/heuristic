@@ -3,9 +3,9 @@ package ollama
 import (
 	"strings"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/responsesapi"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/primitives"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/responsesapi"
+	"github.com/ItIsCuthNotCup/heuristic/harness/primitives"
 )
 
 const BaseURL = "http://localhost:11434/v1"

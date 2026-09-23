@@ -12,8 +12,8 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/primitives"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/primitives"
 )
 
 const remoteSource primitives.SourceID = "llm.responsesapi"

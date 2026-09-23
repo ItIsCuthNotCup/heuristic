@@ -7,7 +7,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
 )
 
 type ID string

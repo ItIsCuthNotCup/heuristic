@@ -14,8 +14,8 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/primitives"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/primitives"
 )
 
 func TestAdapterRemoteRequestsUseUUIDCorrelationIDs(t *testing.T) {

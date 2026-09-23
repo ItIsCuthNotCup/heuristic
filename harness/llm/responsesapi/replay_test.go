@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/contextbuilder"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/operation"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool/bash"
+	"github.com/ItIsCuthNotCup/heuristic/harness/contextbuilder"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/operation"
+	"github.com/ItIsCuthNotCup/heuristic/harness/sessionstore"
+	"github.com/ItIsCuthNotCup/heuristic/harness/tool/bash"
 )
 
 func TestRequestBodyReplaysRejectedToolCallFromHistory(t *testing.T) {

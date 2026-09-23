@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/operation"
+	"github.com/ItIsCuthNotCup/heuristic/harness/operation"
 )
 
 func TestNewRemoteJobSpecRoundTripsPlan(t *testing.T) {

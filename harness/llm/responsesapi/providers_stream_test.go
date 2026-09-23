@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/clients/fireworks"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/clients/openai"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/clients/openaicodex"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/clients/openrouter"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/responsesapi"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/clients/fireworks"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/clients/openai"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/clients/openaicodex"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/clients/openrouter"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/responsesapi"
 )
 
 type streamingClient interface {

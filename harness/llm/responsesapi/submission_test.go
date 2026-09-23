@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/contextbuilder"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/contextbuilder"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
 )
 
 func TestSubmittedPrefixAndLateResultOrderOnWire(t *testing.T) {

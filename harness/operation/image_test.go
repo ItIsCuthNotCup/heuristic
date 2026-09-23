@@ -22,7 +22,7 @@ import (
 	"golang.org/x/image/bmp"
 	"golang.org/x/image/tiff"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/primitives"
+	"github.com/ItIsCuthNotCup/heuristic/harness/primitives"
 )
 
 func TestViewImageRecognizesFormatsFromContent(t *testing.T) {

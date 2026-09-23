@@ -1,7 +1,7 @@
 .PHONY: build test check
 
 build:
-	go build -trimpath -o bin/metacog-agent ./cmd/metacog-agent
+	go build -trimpath -o bin/heuristic ./cmd/heuristic
 
 test:
 	go test -race ./...

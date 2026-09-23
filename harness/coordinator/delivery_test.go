@@ -4,12 +4,12 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/contextbuilder"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/operation"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/session"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore/localfile"
+	"github.com/ItIsCuthNotCup/heuristic/harness/contextbuilder"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/operation"
+	"github.com/ItIsCuthNotCup/heuristic/harness/session"
+	"github.com/ItIsCuthNotCup/heuristic/harness/sessionstore"
+	"github.com/ItIsCuthNotCup/heuristic/harness/sessionstore/localfile"
 )
 
 func TestCoordinatorReplaysToolResultBalance(t *testing.T) {

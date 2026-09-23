@@ -7,9 +7,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/inbox"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool"
+	"github.com/ItIsCuthNotCup/heuristic/harness/inbox"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/tool"
 )
 
 // ToolCallRunningPayload is the result a running call shows until it completes.

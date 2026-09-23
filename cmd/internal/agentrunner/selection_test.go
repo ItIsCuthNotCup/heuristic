@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/sessionstore"
 )
 
 func TestRunSelectsToolsFromStartupConfiguration(t *testing.T) {

@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/session"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore/localfile"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/session"
+	"github.com/ItIsCuthNotCup/heuristic/harness/sessionstore"
+	"github.com/ItIsCuthNotCup/heuristic/harness/sessionstore/localfile"
 )
 
 func addLogFuzzSeeds(f *testing.F) {

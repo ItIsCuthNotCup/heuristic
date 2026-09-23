@@ -5,8 +5,8 @@ import (
 	"encoding/json/v2"
 	"fmt"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/inbox"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/session"
+	"github.com/ItIsCuthNotCup/heuristic/harness/inbox"
+	"github.com/ItIsCuthNotCup/heuristic/harness/session"
 )
 
 type itemJSON Item

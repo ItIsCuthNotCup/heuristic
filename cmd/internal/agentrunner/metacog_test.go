@@ -3,7 +3,7 @@ package agentrunner
 import (
 	"testing"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/metacog"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/metacog"
 )
 
 func envFunc(values map[string]string) func(string) string {
@@ -35,15 +35,15 @@ func TestResolveMetaCogDefaultsOffWithoutKey(t *testing.T) {
 
 func TestResolveMetaCogRequestOverridesEnv(t *testing.T) {
 	env := envFunc(map[string]string{
-		"METACOG_AGENT_JUDGE":           "off",
-		"METACOG_AGENT_STOP_CONFIDENCE": "0.5",
+		"HEURISTIC_JUDGE":           "off",
+		"HEURISTIC_STOP_CONFIDENCE": "0.5",
 	})
 	req := &MetaCogRequest{Judge: "local", Mode: "all"}
 	env = envFunc(map[string]string{
-		"METACOG_AGENT_JUDGE":           "local",
-		"METACOG_AGENT_JUDGE_URL":       "http://localhost:8080",
-		"METACOG_AGENT_JUDGE_MODEL":     "m",
-		"METACOG_AGENT_STOP_CONFIDENCE": "0.5",
+		"HEURISTIC_JUDGE":           "local",
+		"HEURISTIC_JUDGE_URL":       "http://localhost:8080",
+		"HEURISTIC_JUDGE_MODEL":     "m",
+		"HEURISTIC_STOP_CONFIDENCE": "0.5",
 	})
 	stop := 0.8
 	req.StopConfidence = &stop
@@ -58,8 +58,8 @@ func TestResolveMetaCogRequestOverridesEnv(t *testing.T) {
 
 func TestResolveMetaCogFlagBeatsAll(t *testing.T) {
 	env := envFunc(map[string]string{
-		"METACOG_AGENT_JUDGE": "jev",
-		"TYPESAFE_API_KEY":    "k",
+		"HEURISTIC_JUDGE":  "jev",
+		"TYPESAFE_API_KEY": "k",
 	})
 	cfg, _, err := resolveMetaCog(env, &MetaCogRequest{Mode: "all"}, "off")
 	if err != nil {
@@ -72,13 +72,13 @@ func TestResolveMetaCogFlagBeatsAll(t *testing.T) {
 
 func TestResolveMetaCogInvalidValues(t *testing.T) {
 	cases := []map[string]string{
-		{"METACOG_AGENT_JUDGE": "wat"},
-		{"METACOG_AGENT_JUDGE": "jev", "TYPESAFE_API_KEY": "k", "METACOG_AGENT_MODE": "bogus"},
-		{"METACOG_AGENT_JUDGE": "jev", "TYPESAFE_API_KEY": "k", "METACOG_AGENT_STOP_CONFIDENCE": "high"},
-		{"METACOG_AGENT_JUDGE": "jev", "TYPESAFE_API_KEY": "k", "METACOG_AGENT_N_MIN": "two"},
-		{"METACOG_AGENT_JUDGE": "local"},
-		{"METACOG_AGENT_JUDGE": "jev", "TYPESAFE_API_KEY": "k", "METACOG_AGENT_JUDGE_CONCURRENCY": "zero"},
-		{"METACOG_AGENT_JUDGE": "local", "METACOG_AGENT_JUDGE_URL": "u", "METACOG_AGENT_JUDGE_MODEL": "m", "METACOG_AGENT_JUDGE_CONCURRENCY": "0"},
+		{"HEURISTIC_JUDGE": "wat"},
+		{"HEURISTIC_JUDGE": "jev", "TYPESAFE_API_KEY": "k", "HEURISTIC_MODE": "bogus"},
+		{"HEURISTIC_JUDGE": "jev", "TYPESAFE_API_KEY": "k", "HEURISTIC_STOP_CONFIDENCE": "high"},
+		{"HEURISTIC_JUDGE": "jev", "TYPESAFE_API_KEY": "k", "HEURISTIC_N_MIN": "two"},
+		{"HEURISTIC_JUDGE": "local"},
+		{"HEURISTIC_JUDGE": "jev", "TYPESAFE_API_KEY": "k", "HEURISTIC_JUDGE_CONCURRENCY": "zero"},
+		{"HEURISTIC_JUDGE": "local", "HEURISTIC_JUDGE_URL": "u", "HEURISTIC_JUDGE_MODEL": "m", "HEURISTIC_JUDGE_CONCURRENCY": "0"},
 	}
 	for i, env := range cases {
 		if _, _, err := resolveMetaCog(envFunc(env), nil, ""); err == nil {
@@ -89,8 +89,8 @@ func TestResolveMetaCogInvalidValues(t *testing.T) {
 
 func TestResolveMetaCogAnswerPriorNone(t *testing.T) {
 	env := envFunc(map[string]string{
-		"TYPESAFE_API_KEY":           "k",
-		"METACOG_AGENT_ANSWER_PRIOR": "none",
+		"TYPESAFE_API_KEY":       "k",
+		"HEURISTIC_ANSWER_PRIOR": "none",
 	})
 	cfg, _, err := resolveMetaCog(env, nil, "")
 	if err != nil {
@@ -103,7 +103,7 @@ func TestResolveMetaCogAnswerPriorNone(t *testing.T) {
 
 func TestLookupEnvFallback(t *testing.T) {
 	env := envFunc(map[string]string{
-		"METACOG_AGENT_LLM_MODEL":    "new",
+		"HEURISTIC_LLM_MODEL":        "new",
 		"UNREAL_HARNESS_LLM_API_KEY": "old-key",
 	})
 	if got := lookupEnv(env, llmModelEnvironment); got != "new" {

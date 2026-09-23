@@ -5,7 +5,7 @@ import (
 	"encoding/xml"
 	"strings"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool"
+	"github.com/ItIsCuthNotCup/heuristic/harness/tool"
 )
 
 //go:embed prompts/skill-preamble.md

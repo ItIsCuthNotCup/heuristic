@@ -17,10 +17,10 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/contextbuilder"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/inbox"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore"
+	"github.com/ItIsCuthNotCup/heuristic/harness/contextbuilder"
+	"github.com/ItIsCuthNotCup/heuristic/harness/inbox"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/sessionstore"
 )
 
 func TestRunMainExecutesBatchedMessages(t *testing.T) {
@@ -184,7 +184,7 @@ func TestRunMainUsesProviderAuthenticationConfiguration(t *testing.T) {
 					"CUSTOM_CREDENTIAL":    test.providerKey,
 					"CUSTOM_API_KEY":       "must-not-use",
 				}[name]
-			}, func() []string { return nil }, strings.NewReader(`{"prompt":"hello"}`), io.Discard, &stderr, Config{Name: "metacog-agent", ParseRequest: parseTestRequest, Providers: providers})
+			}, func() []string { return nil }, strings.NewReader(`{"prompt":"hello"}`), io.Discard, &stderr, Config{Name: "heuristic", ParseRequest: parseTestRequest, Providers: providers})
 			if test.wantError {
 				if code != 1 || created || !strings.Contains(stderr.String(), test.keyEnvironment) {
 					t.Fatalf("exit = %d, client created = %v, stderr = %s", code, created, stderr.String())
@@ -252,7 +252,7 @@ func TestRunMainUsesLLMConfigurationFromEnvironment(t *testing.T) {
 		}`),
 		&stdout,
 		&stderr,
-		Config{Name: "metacog-agent", ParseRequest: parseTestRequest, Providers: providers},
+		Config{Name: "heuristic", ParseRequest: parseTestRequest, Providers: providers},
 	)
 	if code != 0 || !selected {
 		t.Fatalf("exit = %d, selected = %t, stderr = %q", code, selected, stderr.String())
@@ -452,7 +452,7 @@ func (client *fakeClient) Close() error {
 }
 
 func testConfig(client Client) Config {
-	return Config{Name: "metacog-agent", ParseRequest: parseTestRequest, Providers: []Provider{{
+	return Config{Name: "heuristic", ParseRequest: parseTestRequest, Providers: []Provider{{
 		Name: "openai", BaseURL: "https://example.com",
 		DefaultModel:      "gpt-default",
 		APIKeyEnvironment: "OPENAI_API_KEY",

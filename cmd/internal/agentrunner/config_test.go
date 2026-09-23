@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool"
+	"github.com/ItIsCuthNotCup/heuristic/harness/tool"
 )
 
 func TestRunRejectsIncompleteConfiguration(t *testing.T) {

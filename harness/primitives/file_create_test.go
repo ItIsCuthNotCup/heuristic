@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/primitives"
+	"github.com/ItIsCuthNotCup/heuristic/harness/primitives"
 )
 
 func TestCreateFileCreatesEmptyFile(t *testing.T) {

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/primitives"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/primitives"
 )
 
 const completedResponse = `{"id":"resp-1","status":"completed","output":[{"id":"fc-1","type":"function_call","call_id":"call-1","name":"Bash","arguments":"{\"command\":\"pwd\"}","status":"completed"},{"id":"rs-1","type":"reasoning","encrypted_content":"opaque","summary":[{"type":"summary_text","text":"Check directory"}]}],"usage":{"input_tokens":12,"input_tokens_details":{"cached_tokens":5},"output_tokens":8,"output_tokens_details":{"reasoning_tokens":4}}}`

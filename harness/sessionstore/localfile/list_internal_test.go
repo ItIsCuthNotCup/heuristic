@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/session"
+	"github.com/ItIsCuthNotCup/heuristic/harness/session"
 )
 
 func TestListSessionEntriesSkipsRemovedFiles(t *testing.T) {

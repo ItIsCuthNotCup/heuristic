@@ -1,4 +1,4 @@
-module github.com/ItIsCuthNotCup/MetaCog-Agent
+module github.com/ItIsCuthNotCup/heuristic
 
 go 1.27.0
 

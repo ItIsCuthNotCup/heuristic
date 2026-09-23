@@ -14,7 +14,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/primitives"
+	"github.com/ItIsCuthNotCup/heuristic/harness/primitives"
 )
 
 func (adapter *adapter) exchange(ctx context.Context, body []byte, cacheKey string) (int, []byte, error) {

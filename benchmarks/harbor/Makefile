@@ -1,7 +1,7 @@
 .PHONY: sync check test build smoke
 
 REVISION ?= HEAD
-RUNNER ?= metacog-agent
+RUNNER ?= heuristic
 ARCH ?= amd64
 BUNDLE ?= ../../bin/harbor/$(shell git rev-parse --short $(REVISION))
 

@@ -26,7 +26,7 @@ class Bundle:
         return bundle
 
     def read_binary(self) -> bytes:
-        data = (self.directory / "metacog-agent").read_bytes()
+        data = (self.directory / "heuristic").read_bytes()
         if hashlib.sha256(data).hexdigest() != self.sha256:
             raise ValueError("Runner binary checksum does not match its manifest")
         return data

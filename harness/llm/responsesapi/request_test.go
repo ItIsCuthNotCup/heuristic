@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
 )
 
 func TestRequestInputItemReplaysToolCallArguments(t *testing.T) {

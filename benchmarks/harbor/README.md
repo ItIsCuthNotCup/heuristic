@@ -1,6 +1,6 @@
 # Harbor evaluation adapter
 
-Evaluates `metacog-agent` as `metacog-agent` with Harbor 0.22.0. Requires Go
+Evaluates `heuristic` as `heuristic` with Harbor 0.22.0. Requires Go
 from the root `go.mod`, Python 3.12+, uv, and Docker or Modal.
 
 ## Setup and build
@@ -50,7 +50,7 @@ uv run --project benchmarks/harbor --locked --extra modal harbor run \
   -e modal -a harness_harbor.agent:UnrealAgent \
   -m openai/gpt-6-astra \
   --ak bundle="$PWD/bin/harbor/<short-commit>" --ak thinking_level=max \
-  -k 5 -n 40 --job-name tb4-metacog-agent
+  -k 5 -n 40 --job-name tb4-heuristic
 ```
 
 Inspect results with `harbor view jobs/<job-name>`.

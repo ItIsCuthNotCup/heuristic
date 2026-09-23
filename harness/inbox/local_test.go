@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/inbox"
+	"github.com/ItIsCuthNotCup/heuristic/harness/inbox"
 )
 
 func TestInboxOutputsNewInputs(t *testing.T) {

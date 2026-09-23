@@ -17,10 +17,10 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/contextbuilder"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/inbox"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore"
+	"github.com/ItIsCuthNotCup/heuristic/harness/contextbuilder"
+	"github.com/ItIsCuthNotCup/heuristic/harness/inbox"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/sessionstore"
 )
 
 func TestRunMainHeartbeatReleasesWaitingBashAndReplays(t *testing.T) {
@@ -151,7 +151,7 @@ func TestRunMainRejectsInvalidHeartbeatInterval(t *testing.T) {
 			var stderr bytes.Buffer
 			code := RunMain(t.Context(), []string{"-tool-heartbeat-interval", interval},
 				func(string) string { return "" }, func() []string { return nil },
-				strings.NewReader(`{"prompt":"hello"}`), io.Discard, &stderr, Config{Name: "metacog-agent", ParseRequest: parseTestRequest})
+				strings.NewReader(`{"prompt":"hello"}`), io.Discard, &stderr, Config{Name: "heuristic", ParseRequest: parseTestRequest})
 			if code != 1 || !strings.Contains(stderr.String(), "heartbeat") {
 				t.Fatalf("exit = %d, stderr = %s", code, stderr.String())
 			}

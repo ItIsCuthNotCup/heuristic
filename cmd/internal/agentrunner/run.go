@@ -18,19 +18,19 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/contextbuilder"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/coordinator"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/inbox"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/metacog"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/responsesapi"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/operation"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/session"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/sessionstore/localfile"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool/bash"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/tool/viewimage"
+	"github.com/ItIsCuthNotCup/heuristic/harness/contextbuilder"
+	"github.com/ItIsCuthNotCup/heuristic/harness/coordinator"
+	"github.com/ItIsCuthNotCup/heuristic/harness/inbox"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/metacog"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/responsesapi"
+	"github.com/ItIsCuthNotCup/heuristic/harness/operation"
+	"github.com/ItIsCuthNotCup/heuristic/harness/session"
+	"github.com/ItIsCuthNotCup/heuristic/harness/sessionstore"
+	"github.com/ItIsCuthNotCup/heuristic/harness/sessionstore/localfile"
+	"github.com/ItIsCuthNotCup/heuristic/harness/tool"
+	"github.com/ItIsCuthNotCup/heuristic/harness/tool/bash"
+	"github.com/ItIsCuthNotCup/heuristic/harness/tool/viewimage"
 )
 
 const (
@@ -43,13 +43,13 @@ const (
 	llmMaxAttemptsEnvironment = "UNREAL_HARNESS_LLM_MAX_ATTEMPTS"
 )
 
-// lookupEnv reads the METACOG_AGENT_ equivalent of an environment name first,
+// lookupEnv reads the HEURISTIC_ equivalent of an environment name first,
 // then falls back to the upstream name so existing deployments keep working:
 // lookupEnv(getenv, "UNREAL_HARNESS_LLM_MODEL") checks
-// METACOG_AGENT_LLM_MODEL, then UNREAL_HARNESS_LLM_MODEL.
+// HEURISTIC_LLM_MODEL, then UNREAL_HARNESS_LLM_MODEL.
 func lookupEnv(getenv func(string) string, name string) string {
 	suffix, _ := strings.CutPrefix(name, "UNREAL_HARNESS_")
-	if value := strings.TrimSpace(getenv("METACOG_AGENT_" + suffix)); value != "" {
+	if value := strings.TrimSpace(getenv("HEURISTIC_" + suffix)); value != "" {
 		return value
 	}
 	return getenv(name)

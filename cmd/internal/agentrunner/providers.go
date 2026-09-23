@@ -1,11 +1,11 @@
 package agentrunner
 
 import (
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/clients/fireworks"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/clients/ollama"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/clients/openai"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/clients/openaicodex"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/clients/openrouter"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/clients/fireworks"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/clients/ollama"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/clients/openai"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/clients/openaicodex"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/clients/openrouter"
 )
 
 func DefaultProviders() []Provider {

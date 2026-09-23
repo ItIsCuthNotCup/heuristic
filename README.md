@@ -1,7 +1,9 @@
-# MetaCog Agent
+# Heuristic
 
-An async-first agent harness — a fork of [Unreal Agent](https://github.com/unreallabsai/unreal-agent)
-by Unreal Labs (MIT) — with built-in inference-time metacognition. On answer
+*An agent that doesn't overthink.*
+
+Heuristic is an async-first agent harness — a fork of [Unreal Agent](https://github.com/unreallabsai/unreal-agent)
+by Unreal Labs (MIT) — with MetaCog inference-time metacognition built in. On answer
 turns, a judge (TypeSafe's Jev/System-One, or any local open model via
 logprobs) scores the model's answer; if it is not confident the agent writes
 2–6 more thought paths in parallel, scores them and their bare final answers,
@@ -11,7 +13,7 @@ Agent's cost profile is preserved.
 Install:
 
 ```sh
-go install github.com/ItIsCuthNotCup/MetaCog-Agent/cmd/metacog-agent@latest
+go install github.com/ItIsCuthNotCup/heuristic/cmd/heuristic@latest
 ```
 
 Quick start:
@@ -19,22 +21,22 @@ Quick start:
 ```sh
 export OPENAI_API_KEY="..."       # the agent model
 export TYPESAFE_API_KEY="..."     # the Jev judge (omit for judge=off)
-metacog-agent -p 'Solve this task.'
+heuristic -p 'Solve this task.'
 ```
 
 Environment:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `METACOG_AGENT_JUDGE` | `jev` if `TYPESAFE_API_KEY` is set, else `off` | `jev` \| `local` \| `off` |
-| `METACOG_AGENT_JUDGE_URL` | `https://api.typesafe.ai` (jev); required for `local` | judge endpoint |
-| `METACOG_AGENT_JUDGE_MODEL` | `jev-latest` | judge model |
-| `METACOG_AGENT_JUDGE_CONCURRENCY` | `8` (jev), `1` (local) | parallel judge requests per pool |
-| `METACOG_AGENT_MODE` | `final` | `final` judges answers only; `all` also judges tool-call turns; `off` disables |
-| `METACOG_AGENT_STOP_CONFIDENCE` | `0.95` | judge score above which the first answer is kept |
-| `METACOG_AGENT_N_MIN` / `N_MAX` | `2` / `6` | branch count bounds, scaled by judge uncertainty |
-| `METACOG_AGENT_ANSWER_PRIOR` | `0.5` (`none` disables) | weight of the bare-answer score |
-| `METACOG_AGENT_JEV_API_KEY` | falls back to `TYPESAFE_API_KEY` | Jev key |
+| `HEURISTIC_JUDGE` | `jev` if `TYPESAFE_API_KEY` is set, else `off` | `jev` \| `local` \| `off` |
+| `HEURISTIC_JUDGE_URL` | `https://api.typesafe.ai` (jev); required for `local` | judge endpoint |
+| `HEURISTIC_JUDGE_MODEL` | `jev-latest` | judge model |
+| `HEURISTIC_JUDGE_CONCURRENCY` | `8` (jev), `1` (local) | parallel judge requests per pool |
+| `HEURISTIC_MODE` | `final` | `final` judges answers only; `all` also judges tool-call turns; `off` disables |
+| `HEURISTIC_STOP_CONFIDENCE` | `0.95` | judge score above which the first answer is kept |
+| `HEURISTIC_N_MIN` / `N_MAX` | `2` / `6` | branch count bounds, scaled by judge uncertainty |
+| `HEURISTIC_ANSWER_PRIOR` | `0.5` (`none` disables) | weight of the bare-answer score |
+| `HEURISTIC_JEV_API_KEY` | falls back to `TYPESAFE_API_KEY` | Jev key |
 | `UNREAL_HARNESS_*` | — | upstream names still work as fallbacks |
 
 Measured (from [MetaCog](https://github.com/ItIsCuthNotCup/MetaCog) v0.3 on

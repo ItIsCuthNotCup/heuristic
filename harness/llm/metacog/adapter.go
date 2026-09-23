@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
 )
 
 // Config controls the metacognition wrapper around an llm.Adapter.

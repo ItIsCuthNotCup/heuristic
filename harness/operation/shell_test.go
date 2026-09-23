@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/operation"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/primitives"
+	"github.com/ItIsCuthNotCup/heuristic/harness/operation"
+	"github.com/ItIsCuthNotCup/heuristic/harness/primitives"
 )
 
 const testShellPath = "/bin/sh"

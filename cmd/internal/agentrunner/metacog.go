@@ -5,11 +5,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/metacog"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/metacog"
 )
 
 // MetaCogRequest is the optional "metacog" request field overriding the
-// METACOG_AGENT_* environment configuration.
+// HEURISTIC_* environment configuration.
 type MetaCogRequest struct {
 	Judge          string   `json:"judge"`
 	Mode           string   `json:"mode"`
@@ -88,7 +88,7 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 		url := lookupEnv(getenv, "JUDGE_URL")
 		model := lookupEnv(getenv, "JUDGE_MODEL")
 		if url == "" || model == "" {
-			return cfg, "", fmt.Errorf("METACOG_AGENT_JUDGE=local requires METACOG_AGENT_JUDGE_URL and METACOG_AGENT_JUDGE_MODEL")
+			return cfg, "", fmt.Errorf("HEURISTIC_JUDGE=local requires HEURISTIC_JUDGE_URL and HEURISTIC_JUDGE_MODEL")
 		}
 		jc, err := parseConcurrency(concurrency, 1)
 		if err != nil {
@@ -97,7 +97,7 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 		cfg.Judge = metacog.NewLogprob(metacog.LogprobConfig{BaseURL: url, Model: model, Concurrency: jc})
 		judgeName = "local"
 	default:
-		return cfg, "", fmt.Errorf("METACOG_AGENT_JUDGE must be jev, local or off, got %q", judge)
+		return cfg, "", fmt.Errorf("HEURISTIC_JUDGE must be jev, local or off, got %q", judge)
 	}
 
 	if stop != "" {
@@ -136,14 +136,14 @@ func parseConcurrency(value string, fallback int) (int, error) {
 	}
 	n, err := strconv.Atoi(value)
 	if err != nil || n < 1 {
-		return 0, fmt.Errorf("METACOG_AGENT_JUDGE_CONCURRENCY must be a positive integer, got %q", value)
+		return 0, fmt.Errorf("HEURISTIC_JUDGE_CONCURRENCY must be a positive integer, got %q", value)
 	}
 	return n, nil
 }
 
-// jevAPIKey reads METACOG_AGENT_JEV_API_KEY, then TYPESAFE_API_KEY.
+// jevAPIKey reads HEURISTIC_JEV_API_KEY, then TYPESAFE_API_KEY.
 func jevAPIKey(getenv func(string) string) string {
-	if key := strings.TrimSpace(getenv("METACOG_AGENT_JEV_API_KEY")); key != "" {
+	if key := strings.TrimSpace(getenv("HEURISTIC_JEV_API_KEY")); key != "" {
 		return key
 	}
 	return strings.TrimSpace(getenv("TYPESAFE_API_KEY"))

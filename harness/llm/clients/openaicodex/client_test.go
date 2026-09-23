@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm"
-	"github.com/ItIsCuthNotCup/MetaCog-Agent/harness/llm/responsesapi"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/responsesapi"
 )
 
 func TestClientUsesSubscriptionProtocol(t *testing.T) {
@@ -24,7 +24,7 @@ func TestClientUsesSubscriptionProtocol(t *testing.T) {
 		if r.URL.Path != "/responses" || r.Method != "POST" {
 			t.Errorf("request = %s %s", r.Method, r.URL.Path)
 		}
-		for key, want := range map[string]string{"Authorization": "Bearer access-token", "ChatGPT-Account-ID": "account", "Accept": "text/event-stream", "Content-Type": "application/json", "originator": "metacog-agent"} {
+		for key, want := range map[string]string{"Authorization": "Bearer access-token", "ChatGPT-Account-ID": "account", "Accept": "text/event-stream", "Content-Type": "application/json", "originator": "heuristic"} {
 			if r.Header.Get(key) != want {
 				t.Errorf("incorrect %s header", key)
 			}
