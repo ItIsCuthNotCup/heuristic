@@ -70,27 +70,33 @@ func newTUI(c *console) *tui {
 	return &tui{c: c, p: palette{on: c.color}}
 }
 
-// logoLines is the terminal mark: one thought splits into three paths;
-// two fade out and one is taken.
+// logoLines is the terminal mark (docs/logo.svg): an H whose stems fork
+// into paths at both ends and meet in one node.
 func logoLines(p palette) []string {
+	fork := p.dim("• ") + "│" + p.dim(" •")
 	return []string{
-		"   " + p.dim("╭──·"),
-		" " + p.accent("●") + p.dim("─") + p.accent("┼───▶"),
-		"   " + p.dim("╰──·"),
+		"  ●       ●",
+		fork + "   " + fork,
+		"╰─┼─╯   ╰─┼─╯",
+		"  │       │",
+		"  ├───" + p.accent("●") + "───┤",
+		"  │       │",
+		"╭─┼─╮   ╭─┼─╮",
+		fork + "   " + fork,
+		"  ●       ●",
 	}
 }
 
 func (t *tui) banner(version string) {
 	p := t.p
 	logo := logoLines(p)
-	lines := []string{
-		"",
-		logo[0],
-		logo[1] + "  " + p.bold("Heuristic") + p.dim(version),
-		logo[2] + "  " + p.dim("an agent that doesn't overthink"),
-		"",
+	logo[3] += "    " + p.bold("Heuristic") + p.dim(version)
+	logo[5] += "    " + p.dim("an agent that doesn't overthink")
+	lines := []string{""}
+	for _, line := range logo {
+		lines = append(lines, "  "+line)
 	}
-	t.c.Print(strings.Join(lines, "\n") + "\n")
+	t.c.Print(strings.Join(append(lines, ""), "\n") + "\n")
 }
 
 func (t *tui) sessionHeader(st status) {

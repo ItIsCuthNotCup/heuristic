@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/logo.svg" alt="Heuristic" width="420"></p>
+<p align="center"><img src="docs/logo.svg" alt="Heuristic" width="200"></p>
 
 # Heuristic
 

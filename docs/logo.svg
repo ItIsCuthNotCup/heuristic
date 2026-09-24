@@ -1,14 +1,34 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 140" width="520" height="140" role="img" aria-label="Heuristic">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Heuristic">
   <title>Heuristic</title>
-  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M44 70 C70 70 76 30 104 30 L128 30" stroke="#8a8f98" stroke-width="5" stroke-dasharray="2 10" opacity="0.7"/>
-    <path d="M44 70 C70 70 76 110 104 110 L128 110" stroke="#8a8f98" stroke-width="5" stroke-dasharray="2 10" opacity="0.7"/>
-    <path d="M44 70 L140 70" stroke="#ff8700" stroke-width="7"/>
-    <path d="M130 56 L148 70 L130 84" stroke="#ff8700" stroke-width="7"/>
+  <rect width="1024" height="1024" rx="160" fill="#000"/>
+  <g fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round">
+    <!-- stems -->
+    <path d="M380 138 V860 M645 138 V860"/>
+    <!-- top forks -->
+    <path d="M380 300 C380 272 340 262 338 231 M380 300 C380 272 424 266 426 234"/>
+    <path d="M645 300 C645 272 599 266 597 234 M645 300 C645 272 685 262 686 231"/>
+    <!-- bottom forks -->
+    <path d="M380 700 C380 728 340 736 338 762 M380 700 C380 728 424 736 426 769"/>
+    <path d="M645 700 C645 728 599 736 597 769 M645 700 C645 728 685 736 686 762"/>
+    <!-- crossbar: stems bend into the centre node -->
+    <path d="M380 420 C380 470 420 494 512 498 C604 494 645 470 645 420"/>
+    <path d="M380 576 C380 526 420 502 512 498 C604 502 645 526 645 576"/>
   </g>
-  <circle cx="34" cy="70" r="14" fill="#ff8700"/>
-  <circle cx="132" cy="30" r="5" fill="#8a8f98" opacity="0.7"/>
-  <circle cx="132" cy="110" r="5" fill="#8a8f98" opacity="0.7"/>
-  <text x="178" y="82" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="46" font-weight="700" fill="#ff8700">Heuristic</text>
-  <text x="180" y="112" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" fill="#8a8f98">an agent that doesn't overthink</text>
+  <g fill="#fff">
+    <circle cx="380" cy="138" r="15"/>
+    <circle cx="645" cy="138" r="15"/>
+    <circle cx="380" cy="860" r="15"/>
+    <circle cx="645" cy="860" r="15"/>
+    <circle cx="338" cy="231" r="12"/>
+    <circle cx="426" cy="234" r="13"/>
+    <circle cx="597" cy="234" r="13"/>
+    <circle cx="686" cy="231" r="12"/>
+    <circle cx="338" cy="762" r="12"/>
+    <circle cx="426" cy="769" r="13"/>
+    <circle cx="597" cy="769" r="13"/>
+    <circle cx="686" cy="762" r="12"/>
+    <circle cx="512" cy="498" r="18"/>
+    <path d="M384 466 Q398 488 440 495 L440 501 Q398 508 384 530 Z"/>
+    <path d="M641 466 Q627 488 585 495 L585 501 Q627 508 641 530 Z"/>
+  </g>
 </svg>
