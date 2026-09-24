@@ -668,6 +668,14 @@ func friendlyError(err error) string {
 	return truncateRunes(message, 300)
 }
 
+// errorHint says how to recover from a failed turn.
+func errorHint(err error, getenv func(string) string) string {
+	if strings.Contains(err.Error(), "HEURISTIC_") {
+		return "Fix that setting in your environment or " + shortPath(userConfigPath(getenv)) + ", then restart heu."
+	}
+	return "Fix it with /login or /model, or send a message to try again."
+}
+
 // modelDisplayName is the short model name shown in the UI.
 func modelDisplayName(model string) string {
 	for _, known := range codexModels {

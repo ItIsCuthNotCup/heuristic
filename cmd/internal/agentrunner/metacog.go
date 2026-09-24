@@ -17,6 +17,9 @@ type MetaCogRequest struct {
 	NMin           *int     `json:"n_min"`
 	NMax           *int     `json:"n_max"`
 	AnswerPrior    *float64 `json:"answer_prior"`
+	// Vote is how many extra paths race after a final answer; "off" uses
+	// the v0.3 judge-first loop.
+	Vote string `json:"vote"`
 }
 
 // resolveMetaCog builds the metacog adapter Config from the environment,
@@ -30,7 +33,11 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 	nMin := lookupEnv(getenv, "N_MIN")
 	nMax := lookupEnv(getenv, "N_MAX")
 	prior := lookupEnv(getenv, "ANSWER_PRIOR")
+	vote := lookupEnv(getenv, "VOTE")
 	if req != nil {
+		if req.Vote != "" {
+			vote = req.Vote
+		}
 		if req.Judge != "" {
 			judge = req.Judge
 		}
@@ -116,6 +123,15 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 		cfg.NMax, err = strconv.Atoi(nMax)
 		if err != nil {
 			return cfg, "", fmt.Errorf("parse metacog n_max %q: %w", nMax, err)
+		}
+	}
+	switch {
+	case strings.EqualFold(vote, "off"):
+		cfg.Vote = -1
+	case vote != "":
+		cfg.Vote, err = strconv.Atoi(vote)
+		if err != nil || cfg.Vote < 1 {
+			return cfg, "", fmt.Errorf("HEURISTIC_VOTE must be a positive number or off, got %q", vote)
 		}
 	}
 	cfg.AnswerPrior = 0.5 // the MetaCog v0.3 default

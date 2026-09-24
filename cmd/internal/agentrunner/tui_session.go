@@ -206,8 +206,7 @@ func (m *tuiLoop) drive(ctx context.Context, start nextSession) (nextSession, er
 				return nextSession{sessionID: currentID, after: m.login}, nil
 			}
 			if err != nil && ctx.Err() == nil {
-				t.c.Print(p.red("✗ ") + friendlyError(err) + "\n" +
-					p.dim("  Fix it with /login or /model, or send a message to try again.") + "\n")
+				t.c.Print(p.red("✗ ") + friendlyError(err) + "\n" + p.dim("  "+errorHint(err, m.base)) + "\n")
 			}
 		case <-forceStop:
 			cancel()

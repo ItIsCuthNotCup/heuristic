@@ -536,6 +536,16 @@ func TestIsAuthError(t *testing.T) {
 	}
 }
 
+func TestErrorHintPointsSettingsErrorsAtConfig(t *testing.T) {
+	getenv := func(string) string { return "" }
+	if got := errorHint(errors.New(`HEURISTIC_VOTE must be a positive number or off, got "bogus"`), getenv); strings.Contains(got, "/login") {
+		t.Fatalf("settings error hint = %q, want a config hint", got)
+	}
+	if got := errorHint(errors.New("boom"), getenv); !strings.Contains(got, "/login") {
+		t.Fatalf("generic error hint = %q, want /login hint", got)
+	}
+}
+
 func TestChooseProviderDefaultsToConfigured(t *testing.T) {
 	env := map[string]string{
 		"HEURISTIC_LLM_PROVIDER": "openai",
