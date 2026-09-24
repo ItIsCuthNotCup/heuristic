@@ -522,3 +522,16 @@ func TestAccountIDFromIDToken(t *testing.T) {
 		t.Fatalf("accountID = %q", got)
 	}
 }
+
+func TestIsAuthError(t *testing.T) {
+	for raw, want := range map[string]bool{
+		`responses API error UNAUTHORIZED: Invalid 'Authorization' header or token.`: true,
+		"status 401: invalid api key":  true,
+		"status 429: rate limit":       false,
+		"dial tcp: connection refused": false,
+	} {
+		if got := isAuthError(errors.New(raw)); got != want {
+			t.Errorf("isAuthError(%q) = %v, want %v", raw, got, want)
+		}
+	}
+}

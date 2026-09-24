@@ -196,6 +196,7 @@ var errRetryKey = errors.New("retry key")
 
 func chooseProvider(a asker, catalog []providerSpec, getenv func(string) string) (connection, error) {
 	options := make([]option, len(catalog))
+	def := -1
 	for i, spec := range catalog {
 		detail := spec.detail
 		if spec.id == "chatgpt" && existingCodexLogin(getenv) != "" {
@@ -203,11 +204,14 @@ func chooseProvider(a asker, catalog []providerSpec, getenv func(string) string)
 		}
 		if envKey(spec, getenv) != "" {
 			detail = "key found in your environment · " + detail
+			if def < 0 {
+				def = i
+			}
 		}
 		options[i] = option{label: spec.label, detail: detail}
 	}
 	index, err := a.choose("How should Heuristic reach a model?",
-		"Pick one — you can switch any time with /login.", options, 0)
+		"Pick one — you can switch any time with /login.", options, max(def, 0))
 	if err != nil {
 		if errors.Is(err, errBack) {
 			return connection{}, errCancelled
@@ -600,6 +604,23 @@ func checkConnection(ctx context.Context, providers []Provider, conn connection,
 	return nil
 }
 
+// isAuthError reports whether the provider rejected the credentials.
+func isAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"401", "unauthorized", "invalid api key", "invalid_api_key", "incorrect api key",
+		"authentication", "invalid 'authorization'",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // friendlyError turns provider/transport errors into one plain sentence.
 func friendlyError(err error) string {
 	if err == nil {
@@ -610,9 +631,7 @@ func friendlyError(err error) string {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded) || strings.Contains(lower, "timeout"):
 		return "The provider didn't answer in time. Check your connection and try again."
-	case strings.Contains(lower, "401") || strings.Contains(lower, "unauthorized") ||
-		strings.Contains(lower, "invalid api key") || strings.Contains(lower, "invalid_api_key") ||
-		strings.Contains(lower, "incorrect api key") || strings.Contains(lower, "authentication"):
+	case isAuthError(err):
 		return "The provider rejected that key. Double-check it and try again."
 	case strings.Contains(lower, "unsupported_model") || strings.Contains(lower, "model_not_found") ||
 		(strings.Contains(lower, "model") && strings.Contains(lower, "not") &&
