@@ -6,11 +6,12 @@ package agentrunner
 // the Codex auth.json file format.
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -169,7 +171,9 @@ func openBrowser(url string) {
 // codexLogin runs the PKCE sign-in: serves the localhost callback while also
 // accepting a pasted redirect URL or bare code on stdin (headless/SSH).
 // Whichever code arrives first wins. Returns the written auth file path.
-func codexLogin(ctx context.Context, reader *bufio.Reader, out io.Writer, getenv func(string) string) (string, error) {
+// codexLogin runs the browser PKCE flow. The pasted-URL fallback covers
+// browsers that cannot reach this machine's localhost callback.
+func codexLogin(ctx context.Context, a asker, getenv func(string) string) (string, error) {
 	pkce := generatePKCE()
 	state := randomState()
 
@@ -183,22 +187,19 @@ func codexLogin(ctx context.Context, reader *bufio.Reader, out io.Writer, getenv
 		}
 	}
 	if listener == nil {
-		return "", errors.New("cannot listen on localhost ports 1455/1457 for the sign-in callback")
+		return "", errors.New("ports 1455 and 1457 are busy, so the browser can't hand the sign-in back; use \"Sign in from another device\" instead")
 	}
 	defer func() { _ = listener.Close() }()
 
 	redirectURI := fmt.Sprintf("http://localhost:%d/auth/callback", port)
 	authURL := authorizeURL(codexOAuthIssuer, redirectURI, pkce, state)
-
-	fmt.Fprintf(out, "\nSign in with OpenAI in your browser:\n\n  %s\n\n", authURL)
-	fmt.Fprintln(out, "If the browser can't reach this machine (e.g. SSH), paste the")
-	fmt.Fprintln(out, "full URL you were redirected to here:")
+	p := a.colors()
+	a.note("\n" + p.bold("Finish signing in with ChatGPT in your browser.") + "\n" +
+		p.dim("If it didn't open, visit:") + "\n  " + p.cyan(authURL))
 	openBrowser(authURL)
 
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
-
-	// Local callback server.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/auth/callback", func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
@@ -209,7 +210,7 @@ func codexLogin(ctx context.Context, reader *bufio.Reader, out io.Writer, getenv
 		if msg := query.Get("error"); msg != "" {
 			http.Error(w, "Sign-in error: "+msg, http.StatusBadRequest)
 			select {
-			case errCh <- fmt.Errorf("authorization error: %s", msg):
+			case errCh <- fmt.Errorf("sign-in was not completed: %s", msg):
 			default:
 			}
 			return
@@ -220,7 +221,7 @@ func codexLogin(ctx context.Context, reader *bufio.Reader, out io.Writer, getenv
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, "<html><body><h2>Heuristic sign-in complete.</h2>You can close this tab.</body></html>")
+		fmt.Fprint(w, "<html><body style=\"font-family:sans-serif\"><h2>Heuristic is signed in.</h2>You can close this tab and return to your terminal.</body></html>")
 		select {
 		case codeCh <- code:
 		default:
@@ -234,49 +235,177 @@ func codexLogin(ctx context.Context, reader *bufio.Reader, out io.Writer, getenv
 		_ = server.Shutdown(shutdownCtx)
 	}()
 
-	// Pasted-URL fallback.
+	pasteCtx, stopPaste := context.WithCancel(ctx)
+	pasteDone := make(chan struct{})
 	go func() {
-		line, err := reader.ReadString('\n')
-		if err != nil {
+		defer close(pasteDone)
+		for {
+			line, err := a.input(pasteCtx, "Waiting for the browser…",
+				"Browser on a different machine? Paste the address it ends on (http://localhost:…) here.", "", false)
+			if pasteCtx.Err() != nil {
+				return
+			}
+			if err != nil {
+				select {
+				case errCh <- err:
+				default:
+				}
+				return
+			}
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			code, err := codeFromPasted(line, state)
+			if err != nil {
+				a.note(p.red("✗ ") + err.Error())
+				continue
+			}
 			select {
-			case errCh <- errors.New("no sign-in response received"):
+			case codeCh <- code:
 			default:
 			}
 			return
-		}
-		code, err := codeFromPasted(line, state)
-		if err != nil {
-			select {
-			case errCh <- err:
-			default:
-			}
-			return
-		}
-		select {
-		case codeCh <- code:
-		default:
 		}
 	}()
-
 	var code string
+	var waitErr error
 	select {
 	case code = <-codeCh:
-	case err := <-errCh:
-		return "", err
+	case waitErr = <-errCh:
 	case <-ctx.Done():
-		return "", ctx.Err()
+		waitErr = ctx.Err()
 	case <-time.After(10 * time.Minute):
-		return "", errors.New("sign-in timed out")
+		waitErr = errors.New("sign-in timed out after 10 minutes")
 	}
-
-	tokens, err := exchangeCode(ctx, codexOAuthIssuer, redirectURI, pkce, code)
+	stopPaste()
+	<-pasteDone
+	if waitErr != nil {
+		return "", waitErr
+	}
+	var tokens exchangedTokens
+	err := a.busy("Finishing sign-in…", func() error {
+		var err error
+		tokens, err = exchangeCode(ctx, codexOAuthIssuer, redirectURI, pkce, code)
+		return err
+	})
 	if err != nil {
-		return "", fmt.Errorf("exchange sign-in code: %w", err)
+		return "", fmt.Errorf("finish sign-in: %w", err)
 	}
-	if tokens.AccessToken == "" {
-		return "", errors.New("token exchange returned no access token")
-	}
+	return saveCodexTokens(getenv, tokens)
+}
 
+type deviceCodeResponse struct {
+	DeviceAuthID string         `json:"device_auth_id"`
+	UserCode     string         `json:"user_code"`
+	UserCodeAlt  string         `json:"usercode"`
+	Interval     jsontext.Value `json:"interval"`
+}
+
+type deviceTokenResponse struct {
+	AuthorizationCode string `json:"authorization_code"`
+	CodeChallenge     string `json:"code_challenge"`
+	CodeVerifier      string `json:"code_verifier"`
+}
+
+// codexDeviceLogin mirrors codex-rs device_code_auth.rs: request a one-time
+// code, let the user enter it at {issuer}/codex/device on any device, poll
+// for the authorization code, then exchange it like the browser flow.
+func codexDeviceLogin(ctx context.Context, a asker, getenv func(string) string) (string, error) {
+	base := strings.TrimRight(codexOAuthIssuer, "/")
+	api := base + "/api/accounts"
+	var device deviceCodeResponse
+	status, err := postOAuthJSON(ctx, api+"/deviceauth/usercode", map[string]string{"client_id": codexOAuthClientID}, &device)
+	if err != nil {
+		return "", fmt.Errorf("request sign-in code: %w", err)
+	}
+	if status == http.StatusNotFound {
+		return "", errors.New("sign-in with a code isn't available right now; use the browser sign-in instead")
+	}
+	if status != http.StatusOK {
+		return "", fmt.Errorf("request sign-in code: status %d", status)
+	}
+	userCode := device.UserCode
+	if userCode == "" {
+		userCode = device.UserCodeAlt
+	}
+	interval := 5
+	if raw := strings.Trim(string(device.Interval), `" `); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			interval = n
+		}
+	}
+	p := a.colors()
+	a.note("\n" + p.bold("Sign in with ChatGPT from any device") + "\n\n" +
+		"  1. Open  " + p.cyan(base+"/codex/device") + "\n" +
+		"  2. Enter " + p.bold(p.accent(userCode)) + p.dim("   (expires in 15 minutes)") + "\n\n" +
+		p.dim("Only continue if you started this sign-in. If someone gave you this code, press Ctrl-C."))
+	var granted deviceTokenResponse
+	deadline := time.Now().Add(15 * time.Minute)
+	err = a.busy("Waiting for you to approve the sign-in…", func() error {
+		for {
+			status, err := postOAuthJSON(ctx, api+"/deviceauth/token",
+				map[string]string{"device_auth_id": device.DeviceAuthID, "user_code": userCode}, &granted)
+			if err != nil {
+				return err
+			}
+			if status == http.StatusOK {
+				return nil
+			}
+			if status != http.StatusForbidden && status != http.StatusNotFound {
+				return fmt.Errorf("sign-in failed (status %d)", status)
+			}
+			if time.Now().After(deadline) {
+				return errors.New("the code expired after 15 minutes")
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(interval) * time.Second):
+			}
+		}
+	})
+	if err != nil {
+		return "", err
+	}
+	tokens, err := exchangeCode(ctx, base, base+"/deviceauth/callback",
+		pkceCodes{verifier: granted.CodeVerifier, challenge: granted.CodeChallenge}, granted.AuthorizationCode)
+	if err != nil {
+		return "", fmt.Errorf("finish sign-in: %w", err)
+	}
+	return saveCodexTokens(getenv, tokens)
+}
+
+func postOAuthJSON(ctx context.Context, endpoint string, body any, out any) (int, error) {
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return 0, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return 0, err
+	}
+	if resp.StatusCode == http.StatusOK {
+		if err := json.Unmarshal(raw, out); err != nil {
+			return 0, fmt.Errorf("invalid response: %w", err)
+		}
+	}
+	return resp.StatusCode, nil
+}
+
+func saveCodexTokens(getenv func(string) string, tokens exchangedTokens) (string, error) {
+	if tokens.AccessToken == "" {
+		return "", errors.New("sign-in returned no access token")
+	}
 	path := codexAuthFilePath(getenv)
 	if err := ensureConfigDirectory(getenv); err != nil {
 		return "", err
@@ -290,7 +419,7 @@ func codexLogin(ctx context.Context, reader *bufio.Reader, out io.Writer, getenv
 	auth.Tokens.RefreshToken = tokens.RefreshToken
 	auth.Tokens.AccountID = accountIDFromIDToken(tokens.IDToken)
 	if err := openaicodex.WriteAuthFile(path, auth); err != nil {
-		return "", fmt.Errorf("save codex credentials: %w", err)
+		return "", fmt.Errorf("save ChatGPT sign-in: %w", err)
 	}
 	return path, nil
 }

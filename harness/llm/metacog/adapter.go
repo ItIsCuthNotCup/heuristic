@@ -72,7 +72,7 @@ func (a *Adapter) Respond(ctx context.Context, req llm.Request, opts llm.Request
 	event := Event{Turn: opts.CacheKey, Chosen: 0}
 	judgeCalls := 0
 	emit := func() {
-		if a.cfg.Trace != nil {
+		if a.cfg.Trace != nil && ctx.Err() == nil {
 			event.JudgeCalls = judgeCalls
 			event.DurationMs = time.Since(start).Milliseconds()
 			a.cfg.Trace(event)

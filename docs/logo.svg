@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 140" width="520" height="140" role="img" aria-label="Heuristic">
+  <title>Heuristic</title>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M44 70 C70 70 76 30 104 30 L128 30" stroke="#8a8f98" stroke-width="5" stroke-dasharray="2 10" opacity="0.7"/>
+    <path d="M44 70 C70 70 76 110 104 110 L128 110" stroke="#8a8f98" stroke-width="5" stroke-dasharray="2 10" opacity="0.7"/>
+    <path d="M44 70 L140 70" stroke="#ff8700" stroke-width="7"/>
+    <path d="M130 56 L148 70 L130 84" stroke="#ff8700" stroke-width="7"/>
+  </g>
+  <circle cx="34" cy="70" r="14" fill="#ff8700"/>
+  <circle cx="132" cy="30" r="5" fill="#8a8f98" opacity="0.7"/>
+  <circle cx="132" cy="110" r="5" fill="#8a8f98" opacity="0.7"/>
+  <text x="178" y="82" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="46" font-weight="700" fill="#ff8700">Heuristic</text>
+  <text x="180" y="112" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" fill="#8a8f98">an agent that doesn't overthink</text>
+</svg>

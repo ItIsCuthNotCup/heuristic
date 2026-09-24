@@ -201,8 +201,10 @@ func Run(
 	toolHeartbeatInterval := flags.Duration("tool-heartbeat-interval", 10*time.Minute, "tool-wait heartbeat interval (0 disables)")
 	metacogMode := flags.String("metacog", "", "metacognition mode: off|final|all (off disables the judge wrapper)")
 	var resumeID *string
+	continueLast := new(bool)
 	if config.Interactive {
 		resumeID = flags.String("resume", "", "resume the session with this ID")
+		continueLast = flags.Bool("c", false, "continue the most recent conversation")
 	}
 	if err := flags.Parse(args); err != nil {
 		if usageErr != nil {
@@ -220,7 +222,8 @@ func Run(
 		if !isTerminalIO(input, output) {
 			return errors.New("heu setup requires a terminal")
 		}
-		return runSetupWizard(ctx, input, output, getenv)
+		_, err := runTerminalSetup(ctx, input, output, getenv, config.Providers)
+		return err
 	}
 	if prompt != nil && flags.NArg() != 0 {
 		return errors.New("-p cannot be combined with a positional JSON request")
@@ -322,96 +325,166 @@ func Run(
 	if err != nil {
 		return err
 	}
-	resolveProvider := func() (Provider, string, string, Client, error) {
-		providerName := strings.TrimSpace(lookupEnv(getenv, llmProviderEnvironment))
-		if providerName == "" {
-			providerName = defaultProvider
-		}
-		selected, err := selectProvider(config.Providers, providerName)
+	spec := sessionSpec{
+		config:           config,
+		parsed:           parsed,
+		newTools:         newTools,
+		messages:         messages,
+		getenv:           getenv,
+		maxAttempts:      maxAttempts,
+		metacogMode:      *metacogMode,
+		oneShot:          prompt != nil,
+		input:            input,
+		output:           output,
+		flagOutput:       flagOutput,
+		workspace:        workspace,
+		sessionDirectory: *sessionDirectory,
+		logDirectory:     *logDirectory,
+		heartbeat:        *toolHeartbeatInterval,
+	}
+	if *continueLast && spec.parsed.SessionID == nil {
+		id, err := latestSessionID(ctx, spec.sessionDirectory)
 		if err != nil {
-			return Provider{}, "", "", nil, err
+			return err
 		}
-		configuredBaseURL := strings.TrimSpace(lookupEnv(getenv, llmBaseURLEnvironment))
-		if configuredBaseURL == "" {
-			configuredBaseURL = selected.BaseURL
+		spec.parsed.SessionID = &id
+	}
+	terminal := config.Interactive && isTerminalIO(input, output)
+	if terminal && prompt == nil {
+		return runTUI(ctx, spec)
+	}
+	if config.Interactive {
+		resolved, err := resolveClient(spec)
+		if err == nil {
+			err = resolved.client.Close()
 		}
+		if err != nil {
+			// Missing credentials on a real terminal: onboard first.
+			if !terminal {
+				return fmt.Errorf("%w (run `heu setup` in a terminal to configure)", err)
+			}
+			values, setupErr := runTerminalSetup(ctx, input, output, getenv, config.Providers)
+			if setupErr != nil {
+				return errors.Join(err, fmt.Errorf("setup: %w", setupErr))
+			}
+			spec.getenv = overlayEnv(getenv, values)
+		}
+	}
+	return runSession(ctx, spec)
+}
 
-		model := strings.TrimSpace(parsed.Model)
-		if model == "" {
-			model = strings.TrimSpace(lookupEnv(getenv, llmModelEnvironment))
-		}
-		if model == "" {
-			model = selected.DefaultModel
-		}
-		if model == "" {
-			return Provider{}, "", "", nil, fmt.Errorf("model must be set in the request or %s", llmModelEnvironment)
-		}
-		var apiKey string
-		if selected.APIKeyEnvironment != "" {
-			apiKey = lookupEnv(getenv, llmAPIKeyEnvironment)
-			if strings.TrimSpace(apiKey) == "" {
-				apiKey = lookupEnv(getenv, selected.APIKeyEnvironment)
-			}
-			if strings.TrimSpace(apiKey) == "" {
-				return Provider{}, "", "", nil, fmt.Errorf(
-					"%s or %s must be set",
-					llmAPIKeyEnvironment,
-					selected.APIKeyEnvironment,
-				)
-			}
-		}
-		client, err := selected.NewClient(apiKey, configuredBaseURL, maxAttempts, getenv)
-		if err != nil {
-			return Provider{}, "", "", nil, fmt.Errorf("create %s client: %w", selected.Name, err)
-		}
-		return selected, configuredBaseURL, model, client, nil
+// sessionSpec is everything one agent session needs; the terminal UI
+// reruns sessions from it with a different model, provider or session id.
+type sessionSpec struct {
+	config           Config
+	parsed           Request
+	newTools         ToolFactory
+	messages         []RequestMessage
+	getenv           func(string) string
+	maxAttempts      int
+	metacogMode      string
+	oneShot          bool
+	input            io.Reader
+	output           io.Writer
+	flagOutput       io.Writer
+	workspace        string
+	sessionDirectory string
+	logDirectory     string
+	heartbeat        time.Duration
+
+	// ui, when set, renders the session and receives the inbox via onReady
+	// instead of the line-based input loop.
+	ui      *tui
+	onReady func(sessionHandle)
+}
+
+// sessionHandle is a running session as seen by the terminal UI.
+type sessionHandle struct {
+	id       session.ID
+	inputs   *inbox.Inbox
+	context  context.Context
+	provider string
+	baseURL  string
+	model    string
+	judge    string
+}
+
+type resolvedClient struct {
+	provider Provider
+	baseURL  string
+	model    string
+	client   Client
+}
+
+func resolveClient(spec sessionSpec) (resolvedClient, error) {
+	getenv := spec.getenv
+	providerName := strings.TrimSpace(lookupEnv(getenv, llmProviderEnvironment))
+	if providerName == "" {
+		providerName = defaultProvider
 	}
-	selected, _, model, client, err := resolveProvider()
-	if err != nil && config.Interactive {
-		// Missing credentials on a real terminal: onboard first.
-		if !isTerminalIO(input, output) {
-			return fmt.Errorf("%w (run `heu setup` in a terminal to configure)", err)
-		}
-		if setupErr := runSetupWizard(ctx, input, output, getenv); setupErr != nil {
-			return errors.Join(err, fmt.Errorf("setup wizard: %w", setupErr))
-		}
-		// Reload the user config so the wizard's values apply; it may
-		// override names the earlier user-config load already set.
-		var reloadOverridable map[string]bool
-		if userConfig != nil {
-			reloadOverridable = userConfig.setNames()
-		}
-		reloaded, loadErr := loadDotEnvInto(userConfigPath(getenv), reloadOverridable)
-		if loadErr != nil {
-			return loadErr
-		}
-		if userConfig != nil {
-			_ = userConfig.Close()
-		}
-		userConfig = reloaded
-		defer func() {
-			if err := userConfig.Close(); err != nil {
-				runErr = errors.Join(runErr, err)
-			}
-		}()
-		selected, _, model, client, err = resolveProvider()
+	selected, err := selectProvider(spec.config.Providers, providerName)
+	if err != nil {
+		return resolvedClient{}, err
 	}
+	configuredBaseURL := strings.TrimSpace(lookupEnv(getenv, llmBaseURLEnvironment))
+	if configuredBaseURL == "" {
+		configuredBaseURL = selected.BaseURL
+	}
+	model := strings.TrimSpace(spec.parsed.Model)
+	if model == "" {
+		model = strings.TrimSpace(lookupEnv(getenv, llmModelEnvironment))
+	}
+	if model == "" {
+		model = selected.DefaultModel
+	}
+	if model == "" {
+		return resolvedClient{}, fmt.Errorf("model must be set in the request or %s", llmModelEnvironment)
+	}
+	var apiKey string
+	if selected.APIKeyEnvironment != "" {
+		apiKey = lookupEnv(getenv, llmAPIKeyEnvironment)
+		if strings.TrimSpace(apiKey) == "" {
+			apiKey = lookupEnv(getenv, selected.APIKeyEnvironment)
+		}
+		if strings.TrimSpace(apiKey) == "" {
+			return resolvedClient{}, fmt.Errorf(
+				"%s or %s must be set",
+				llmAPIKeyEnvironment,
+				selected.APIKeyEnvironment,
+			)
+		}
+	}
+	client, err := selected.NewClient(apiKey, configuredBaseURL, spec.maxAttempts, getenv)
+	if err != nil {
+		return resolvedClient{}, fmt.Errorf("create %s client: %w", selected.Name, err)
+	}
+	return resolvedClient{provider: selected, baseURL: configuredBaseURL, model: model, client: client}, nil
+}
+
+func runSession(ctx context.Context, spec sessionSpec) (runErr error) {
+	config, parsed, getenv := spec.config, spec.parsed, spec.getenv
+	output, flagOutput, workspace, messages := spec.output, spec.flagOutput, spec.workspace, spec.messages
+	resolved, err := resolveClient(spec)
 	if err != nil {
 		return err
 	}
+	selected, model, client := resolved.provider, resolved.model, resolved.client
 	defer func() {
 		if err := client.Close(); err != nil {
 			runErr = errors.Join(runErr, fmt.Errorf("close %s client: %w", selected.Name, err))
 		}
 	}()
 
-	mcConfig, mcJudge, err := resolveMetaCog(getenv, parsed.MetaCog, *metacogMode)
+	mcConfig, mcJudge, err := resolveMetaCog(getenv, parsed.MetaCog, spec.metacogMode)
 	if err != nil {
 		return err
 	}
 	var render *renderer
-	if config.Interactive {
-		render = newRenderer(output, getenv, prompt == nil)
+	switch {
+	case spec.ui != nil:
+		render = &renderer{ui: spec.ui}
+	case config.Interactive:
+		render = newRenderer(output, getenv, !spec.oneShot)
 	}
 	var llmAdapter llm.Adapter = client
 	if mcConfig.Mode != metacog.ModeOff && mcConfig.Judge != nil {
@@ -437,7 +510,7 @@ func Run(
 		llmAdapter = metacog.New(client, mcConfig)
 	}
 
-	storeDirectory, err := filepath.Abs(strings.TrimSpace(*sessionDirectory))
+	storeDirectory, err := filepath.Abs(strings.TrimSpace(spec.sessionDirectory))
 	if err != nil {
 		return fmt.Errorf("resolve session directory: %w", err)
 	}
@@ -449,7 +522,7 @@ func Run(
 	if err != nil {
 		return err
 	}
-	logFile, err := openDatetimeLog(resolveLogDirectory(workspace, *logDirectory), time.Now())
+	logFile, err := openDatetimeLog(resolveLogDirectory(workspace, spec.logDirectory), time.Now())
 	if err != nil {
 		return err
 	}
@@ -491,7 +564,7 @@ func Run(
 			ViewImage: viewimage.New(viewimage.Config{Directory: workspace}),
 		},
 	}
-	configuredTools, err := newTools(runContext, toolConfig)
+	configuredTools, err := spec.newTools(runContext, toolConfig)
 	if err != nil {
 		return err
 	}
@@ -554,7 +627,7 @@ func Run(
 
 	// Interactive REPL mode stays alive for follow-up input; the input loop
 	// submits StopWhenIdle on /quit or EOF. -p still runs to idle.
-	if !config.Interactive || prompt != nil {
+	if !config.Interactive || spec.oneShot {
 		stopPayload, err := json.Marshal(inbox.ControlMessage{Mode: inbox.StopWhenIdle})
 		if err != nil {
 			return fmt.Errorf("encode stop request: %w", err)
@@ -592,7 +665,12 @@ func Run(
 		renderID = store.AddObserver(render.Observe)
 		defer store.RemoveObserver(renderID)
 	}
-	if config.Interactive {
+	if spec.ui != nil {
+		spec.onReady(sessionHandle{
+			id: sessionID, inputs: inputs, context: runContext,
+			provider: selected.Name, baseURL: resolved.baseURL, model: model, judge: mcJudge,
+		})
+	} else if config.Interactive {
 		mcLine := "metacog: off"
 		if mcConfig.Mode != metacog.ModeOff && mcConfig.Judge != nil {
 			mcLine = fmt.Sprintf("metacog: judge=%s mode=%s", mcJudge, mcConfig.Mode)
@@ -602,17 +680,17 @@ func Run(
 			selected.Name, model, workspace, mcLine, sessionID); err != nil {
 			return fmt.Errorf("write banner: %w", err)
 		}
-		if prompt == nil {
+		if !spec.oneShot {
 			if _, err := fmt.Fprint(output, "\n› "); err != nil {
 				return fmt.Errorf("write prompt: %w", err)
 			}
 		}
 	}
-	if config.Interactive && prompt == nil {
-		go runInputLoop(runContext, input, inputs, output, sessionID)
+	if spec.ui == nil && config.Interactive && !spec.oneShot {
+		go runInputLoop(runContext, spec.input, inputs, output, sessionID)
 	}
 	current := coordinator.New(coordinator.Dependencies{
-		ToolHeartbeatInterval: *toolHeartbeatInterval,
+		ToolHeartbeatInterval: spec.heartbeat,
 		SessionID:             sessionID,
 		Inbox:                 inputs,
 		Restored:              restored,
@@ -627,7 +705,7 @@ func Run(
 		return observerErr
 	}
 	if coordinatorErr != nil {
-		if config.Interactive && errors.Is(coordinatorErr, context.Canceled) && ctx.Err() != nil {
+		if spec.ui == nil && config.Interactive && errors.Is(coordinatorErr, context.Canceled) && ctx.Err() != nil {
 			fmt.Fprintf(output, "\ninterrupted — resume with: %s -resume %s\n", config.Name, sessionID)
 			return nil
 		}

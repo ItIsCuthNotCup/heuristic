@@ -1,9 +1,11 @@
 package agentrunner
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +17,7 @@ import (
 )
 
 // wizardGetenv fakes a HOME so config writes land in t.TempDir(); other
-// names fall through to the process environment (wizard reload works).
+// names fall through to the process environment.
 func wizardGetenv(home string) func(string) string {
 	return func(name string) string {
 		if name == "HOME" || name == "XDG_CONFIG_HOME" {
@@ -28,6 +30,16 @@ func wizardGetenv(home string) func(string) string {
 	}
 }
 
+// isolatedGetenv sees only HOME, so no real keys leak into a test.
+func isolatedGetenv(home string) func(string) string {
+	return func(name string) string {
+		if name == "HOME" {
+			return home
+		}
+		return ""
+	}
+}
+
 func readConfigEnv(t *testing.T, home string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(home, ".config", "heuristic", "config.env"))
@@ -37,71 +49,328 @@ func readConfigEnv(t *testing.T, home string) string {
 	return string(data)
 }
 
-func TestSetupWizardOpenAI(t *testing.T) {
-	home := t.TempDir()
-	var out bytes.Buffer
-	// provider 1, model default, api key, judge 3 (off)
-	input := strings.NewReader("1\n\nsk-test-secret\n3\n")
-	if err := runSetupWizard(context.Background(), input, &out, wizardGetenv(home)); err != nil {
-		t.Fatalf("wizard: %v", err)
+type fakeSetup struct {
+	models     []modelChoice
+	listErr    error
+	checkErrs  []error
+	checks     []connection
+	loginPath  string
+	loginErrs  []error
+	loginCalls int
+}
+
+func (f *fakeSetup) deps() setupDeps {
+	return setupDeps{
+		listModels: func(context.Context, connection) ([]modelChoice, error) { return f.models, f.listErr },
+		check: func(_ context.Context, c connection) error {
+			f.checks = append(f.checks, c)
+			if len(f.checkErrs) > 0 {
+				err := f.checkErrs[0]
+				f.checkErrs = f.checkErrs[1:]
+				return err
+			}
+			return nil
+		},
+		browserLogin: f.login,
+		deviceLogin:  f.login,
 	}
+}
+
+func (f *fakeSetup) login(context.Context, asker, func(string) string) (string, error) {
+	f.loginCalls++
+	if len(f.loginErrs) > 0 {
+		err := f.loginErrs[0]
+		f.loginErrs = f.loginErrs[1:]
+		return "", err
+	}
+	return f.loginPath, nil
+}
+
+func runWizard(t *testing.T, home, script string, fake *fakeSetup) (map[string]string, string, error) {
+	t.Helper()
+	var out bytes.Buffer
+	a := &lineAsker{reader: bufio.NewReader(strings.NewReader(script)), out: &out}
+	values, err := runSetupWizard(context.Background(), a, isolatedGetenv(home), fake.deps())
+	return values, out.String(), err
+}
+
+func assertConfig(t *testing.T, home string, want ...string) string {
+	t.Helper()
 	config := readConfigEnv(t, home)
-	for _, want := range []string{
-		"HEURISTIC_LLM_PROVIDER=openai",
-		"HEURISTIC_LLM_MODEL=gpt-6-astra",
-		"HEURISTIC_LLM_API_KEY=sk-test-secret",
-		"HEURISTIC_JUDGE=off",
-	} {
-		if !strings.Contains(config, want) {
-			t.Fatalf("config.env missing %q:\n%s", want, config)
+	for _, line := range want {
+		if !strings.Contains(config, line+"\n") {
+			t.Fatalf("config.env missing %q:\n%s", line, config)
 		}
 	}
+	return config
+}
+
+func TestSetupWizardOpenAIKey(t *testing.T) {
+	home := t.TempDir()
+	fake := &fakeSetup{models: []modelChoice{{id: "gpt-6-luna"}, {id: "gpt-6-sol"}}}
+	// OpenAI API key, paste key, recommended model, MetaCog not now.
+	_, out, err := runWizard(t, home, "3\nsk-test-secret\n\n3\n", fake)
+	if err != nil {
+		t.Fatalf("wizard: %v\n%s", err, out)
+	}
+	assertConfig(t, home,
+		"HEURISTIC_LLM_PROVIDER=openai",
+		"HEURISTIC_LLM_MODEL=gpt-6-sol",
+		"HEURISTIC_LLM_API_KEY=sk-test-secret",
+		"HEURISTIC_JUDGE=off",
+	)
 	info, err := os.Stat(filepath.Join(home, ".config", "heuristic", "config.env"))
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("config.env perm: %v %v", info, err)
 	}
-	if strings.Contains(out.String(), "sk-test-secret") {
+	if strings.Contains(out, "sk-test-secret") {
 		t.Fatal("wizard echoed the API key")
 	}
+	for _, jargon := range []string{"Base URL", "base URL", "OpenAI-compatible"} {
+		if strings.Contains(out, jargon) {
+			t.Fatalf("normal path shows jargon %q:\n%s", jargon, out)
+		}
+	}
+	if !strings.Contains(out, "Connected to") || !strings.Contains(out, "You're set up.") {
+		t.Fatalf("missing success copy:\n%s", out)
+	}
+	if len(fake.checks) != 1 || fake.checks[0].apiKey != "sk-test-secret" || fake.checks[0].model != "gpt-6-sol" {
+		t.Fatalf("checks = %+v", fake.checks)
+	}
+}
+
+func TestSetupWizardRetriesRejectedKey(t *testing.T) {
+	home := t.TempDir()
+	fake := &fakeSetup{
+		models:    []modelChoice{{id: "gpt-6-sol"}},
+		checkErrs: []error{errors.New("status 401: invalid api key")},
+	}
+	// bad key fails the check → "Try a different key" → good key.
+	_, out, err := runWizard(t, home, "3\nbad-key\n\n2\ngood-key\n\n3\n", fake)
+	if err != nil {
+		t.Fatalf("wizard: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "rejected that key") {
+		t.Fatalf("no friendly error:\n%s", out)
+	}
+	config := assertConfig(t, home, "HEURISTIC_LLM_API_KEY=good-key")
+	if strings.Contains(config, "bad-key") {
+		t.Fatalf("saved the rejected key:\n%s", config)
+	}
+}
+
+func TestSetupWizardUnavailableModelPicksAnother(t *testing.T) {
+	home := t.TempDir()
+	fake := &fakeSetup{
+		models:    []modelChoice{{id: "a"}, {id: "b"}},
+		checkErrs: []error{errors.New(`unsupported_model: Model "a" is not supported on this endpoint.`)},
+	}
+	_, out, err := runWizard(t, home, "3\nkey\n1\n1\n2\n3\n", fake)
+	if err != nil {
+		t.Fatalf("wizard: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "isn't available here") {
+		t.Fatalf("no friendly error:\n%s", out)
+	}
+	assertConfig(t, home, "HEURISTIC_LLM_MODEL=b")
+}
+
+func TestSetupWizardSaveAnyway(t *testing.T) {
+	home := t.TempDir()
+	fake := &fakeSetup{models: []modelChoice{{id: "m"}}, checkErrs: []error{errors.New("status 500")}}
+	if _, out, err := runWizard(t, home, "3\nkey\n\n3\n3\n", fake); err != nil {
+		t.Fatalf("wizard: %v\n%s", err, out)
+	}
+	assertConfig(t, home, "HEURISTIC_LLM_MODEL=m")
 }
 
 func TestSetupWizardOllama(t *testing.T) {
 	home := t.TempDir()
-	var out bytes.Buffer
-	input := strings.NewReader("5\nqwen3:4b\n3\n")
-	if err := runSetupWizard(context.Background(), input, &out, wizardGetenv(home)); err != nil {
-		t.Fatalf("wizard: %v", err)
+	fake := &fakeSetup{models: []modelChoice{{id: "qwen3:8b"}}}
+	if _, out, err := runWizard(t, home, "6\n\n3\n", fake); err != nil {
+		t.Fatalf("wizard: %v\n%s", err, out)
 	}
-	config := readConfigEnv(t, home)
-	if !strings.Contains(config, "HEURISTIC_LLM_PROVIDER=ollama") ||
-		!strings.Contains(config, "HEURISTIC_LLM_MODEL=qwen3:4b") {
-		t.Fatalf("config.env:\n%s", config)
-	}
-	if strings.Contains(config, "API_KEY") {
-		t.Fatalf("ollama path wrote a key:\n%s", config)
+	config := assertConfig(t, home, "HEURISTIC_LLM_PROVIDER=ollama", "HEURISTIC_LLM_MODEL=qwen3:8b")
+	if strings.Contains(config, "API_KEY") || strings.Contains(config, "BASE_URL") {
+		t.Fatalf("ollama path wrote a key or URL:\n%s", config)
 	}
 }
 
-func TestSetupWizardCustomEndpoint(t *testing.T) {
+func TestSetupWizardOllamaNotRunning(t *testing.T) {
 	home := t.TempDir()
-	var out bytes.Buffer
-	input := strings.NewReader("6\n\n\ncc-bogus\n2\nhttp://localhost:11434/v1\nqwen3:4b\n")
-	if err := runSetupWizard(context.Background(), input, &out, wizardGetenv(home)); err != nil {
+	fake := &fakeSetup{listErr: errors.New("connection refused")}
+	// Ollama down → "Pick a different option" → Command Code.
+	fake2 := []modelChoice{{id: "moonshotai/Kimi-K2.5"}}
+	a := &lineAsker{reader: bufio.NewReader(strings.NewReader("6\n2\n2\ncc-key\n\n3\n")), out: &bytes.Buffer{}}
+	deps := fake.deps()
+	calls := 0
+	deps.listModels = func(context.Context, connection) ([]modelChoice, error) {
+		calls++
+		if calls == 1 {
+			return nil, fake.listErr
+		}
+		return fake2, nil
+	}
+	if _, err := runSetupWizard(context.Background(), a, isolatedGetenv(home), deps); err != nil {
 		t.Fatalf("wizard: %v", err)
 	}
-	config := readConfigEnv(t, home)
-	for _, want := range []string{
+	assertConfig(t, home, "HEURISTIC_LLM_BASE_URL="+commandCodeBaseURL)
+}
+
+func TestSetupWizardCommandCodeWithLocalJudge(t *testing.T) {
+	home := t.TempDir()
+	fake := &fakeSetup{models: []modelChoice{{id: "zai-org/GLM-5.3"}, {id: "moonshotai/Kimi-K2.5"}, {id: "other/x"}}}
+	if _, out, err := runWizard(t, home, "2\ncc-bogus\n\n2\n\nqwen3:4b\n", fake); err != nil {
+		t.Fatalf("wizard: %v\n%s", err, out)
+	}
+	assertConfig(t, home,
 		"HEURISTIC_LLM_PROVIDER=openai",
 		"HEURISTIC_LLM_BASE_URL=https://api.commandcode.ai/provider/v1",
 		"HEURISTIC_LLM_MODEL=moonshotai/Kimi-K2.5",
 		"HEURISTIC_LLM_API_KEY=cc-bogus",
 		"HEURISTIC_JUDGE=local",
-		"HEURISTIC_JUDGE_URL=http://localhost:11434/v1",
+		"HEURISTIC_JUDGE_URL=http://localhost:8080/v1",
 		"HEURISTIC_JUDGE_MODEL=qwen3:4b",
-	} {
-		if !strings.Contains(config, want) {
-			t.Fatalf("config.env missing %q:\n%s", want, config)
+	)
+}
+
+func TestSetupWizardUsesEnvironmentKey(t *testing.T) {
+	home := t.TempDir()
+	getenv := func(name string) string {
+		switch name {
+		case "HOME":
+			return home
+		case "OPENROUTER_API_KEY":
+			return "sk-or-from-env-123456"
 		}
+		return ""
+	}
+	var out bytes.Buffer
+	a := &lineAsker{reader: bufio.NewReader(strings.NewReader("4\n1\n\n3\n")), out: &out}
+	fake := &fakeSetup{models: []modelChoice{{id: "some/model"}}}
+	if _, err := runSetupWizard(context.Background(), a, getenv, fake.deps()); err != nil {
+		t.Fatalf("wizard: %v", err)
+	}
+	if strings.Contains(out.String(), "sk-or-from-env-123456") {
+		t.Fatal("printed the environment key")
+	}
+	if fake.checks[0].apiKey != "sk-or-from-env-123456" {
+		t.Fatalf("check used %q", fake.checks[0].apiKey)
+	}
+}
+
+func TestSetupWizardCustomServerTypedModel(t *testing.T) {
+	home := t.TempDir()
+	fake := &fakeSetup{models: []modelChoice{{id: "listed"}}}
+	if _, out, err := runWizard(t, home, "7\nhttp://localhost:8000/v1/\n\n2\nmy-model\n3\n", fake); err != nil {
+		t.Fatalf("wizard: %v\n%s", err, out)
+	}
+	config := assertConfig(t, home, "HEURISTIC_LLM_BASE_URL=http://localhost:8000/v1", "HEURISTIC_LLM_MODEL=my-model")
+	if strings.Contains(config, "API_KEY") {
+		t.Fatalf("empty key saved:\n%s", config)
+	}
+}
+
+func TestSetupWizardChatGPTLogin(t *testing.T) {
+	home := t.TempDir()
+	fake := &fakeSetup{loginPath: filepath.Join(home, "auth.json")}
+	if _, out, err := runWizard(t, home, "1\n1\n\n3\n", fake); err != nil {
+		t.Fatalf("wizard: %v\n%s", err, out)
+	}
+	assertConfig(t, home,
+		"HEURISTIC_LLM_PROVIDER=openai-codex",
+		"HEURISTIC_LLM_MODEL=gpt-6-sol",
+		"OPENAI_CODEX_AUTH_FILE="+fake.loginPath,
+	)
+}
+
+func TestSetupWizardChatGPTLoginFailureGoesBack(t *testing.T) {
+	home := t.TempDir()
+	fake := &fakeSetup{
+		loginPath: filepath.Join(home, "auth.json"),
+		loginErrs: []error{errors.New("sign-in was cancelled")},
+	}
+	// Failed browser sign-in → back to the sign-in choice → device code.
+	if _, out, err := runWizard(t, home, "1\n1\n2\n\n3\n", fake); err != nil {
+		t.Fatalf("wizard: %v\n%s", err, out)
+	}
+	if fake.loginCalls != 2 {
+		t.Fatalf("login calls = %d", fake.loginCalls)
+	}
+}
+
+func TestSetupWizardReusesCodexLogin(t *testing.T) {
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	auth := filepath.Join(codexDir, "auth.json")
+	if err := os.WriteFile(auth, []byte(`{"tokens":{"id_token":"h.e30.s","access_token":"a","refresh_token":"r","account_id":"acct"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeSetup{}
+	if _, out, err := runWizard(t, home, "1\n1\n\n3\n", fake); err != nil {
+		t.Fatalf("wizard: %v\n%s", err, out)
+	}
+	if fake.loginCalls != 0 {
+		t.Fatal("started a new sign-in despite an existing one")
+	}
+	assertConfig(t, home, "OPENAI_CODEX_AUTH_FILE="+auth)
+}
+
+func TestSetupWizardCancelWritesNothing(t *testing.T) {
+	home := t.TempDir()
+	for _, script := range []string{"-\n", "3\nkey\n", ""} {
+		_, _, err := runWizard(t, home, script, &fakeSetup{models: []modelChoice{{id: "m"}}})
+		if err == nil {
+			t.Fatalf("script %q: expected an error", script)
+		}
+		if _, statErr := os.Stat(filepath.Join(home, ".config", "heuristic", "config.env")); statErr == nil {
+			t.Fatalf("script %q wrote config", script)
+		}
+	}
+}
+
+func TestFriendlyErrors(t *testing.T) {
+	for raw, want := range map[string]string{
+		"status 401: Unauthorized":                            "rejected that key",
+		"unsupported_model: Model \"gpt-5\" is not supported": "isn't available",
+		"dial tcp: connection refused":                        "Couldn't reach",
+		"status 429: rate limit":                              "over your limit",
+	} {
+		if got := friendlyError(errors.New(raw)); !strings.Contains(got, want) {
+			t.Errorf("friendlyError(%q) = %q", raw, got)
+		}
+	}
+}
+
+func TestRankModels(t *testing.T) {
+	got := rankModels([]modelChoice{{id: "c"}, {id: "b"}, {id: "a"}}, []string{"a", "b"})
+	if got[0].id != "a" || got[1].id != "b" || got[2].id != "c" {
+		t.Fatalf("rank = %+v", got)
+	}
+}
+
+func TestFetchModelsFiltersNonResponses(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer k" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		fmt.Fprint(w, `{"data":[{"id":"a","supported_endpoints":["/responses"],"context_length":128000},`+
+			`{"id":"claude","supported_endpoints":["/messages"]},{"id":"plain"}]}`)
+	}))
+	defer server.Close()
+	models, err := fetchModels(t.Context(), server.URL, "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 2 || models[0].id != "a" || models[0].detail != "128k context" || models[1].id != "plain" {
+		t.Fatalf("models = %+v", models)
+	}
+	if _, err := fetchModels(t.Context(), server.URL, "wrong"); err == nil || !strings.Contains(friendlyError(err), "rejected") {
+		t.Fatalf("bad key err = %v", err)
 	}
 }
 

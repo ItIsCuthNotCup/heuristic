@@ -34,18 +34,30 @@ vars.
 ## Usage
 
 ```sh
-heu                              # banner + prompt (runs setup on first use)
-heu setup                        # re-run the sign-in/provider wizard
-heu "fix the failing test"       # initial request, then keeps running
+heu                              # sign in on first run, then chat
+heu setup                        # re-run sign-in (same as /login)
+heu "fix the failing test"       # start with a request
+heu -c                           # continue the last conversation here
+heu -resume <session-id>         # resume a specific conversation
 heu -p "summarize this repo"     # one-shot: run and exit
-heu -resume <session-id>         # resume a previous session
 ```
 
-Slash commands: `/help`, `/session` (prints the id and the `-resume` line),
-`/quit` or `/exit` (or EOF) to leave. `/quit` while the agent is working
-lets the current task finish before exiting; Ctrl-C interrupts immediately
-(the session can be resumed with `heu -resume <id>`). Extra input typed
-while the agent works is delivered on its next turn (steering).
+Commands (type `/` for a menu, Tab completes):
+
+| Command | |
+| --- | --- |
+| `/model` | switch model (live list from the provider) |
+| `/login` · `/logout` | sign in / change provider · forget saved sign-in and keys |
+| `/metacog on\|off` | turn MetaCog on or off |
+| `/new` · `/resume` | fresh conversation · pick an earlier one |
+| `/session` · `/clear` · `/help` · `/quit` | |
+| `!<command>` | run a shell command yourself |
+
+Keys: Enter sends, Shift+Enter / Ctrl+J / trailing `\` for a new line,
+↑↓ history, Esc interrupts the agent (or clears the input), Ctrl+O shows the
+full output of the last command, Ctrl+L clears, Ctrl+C twice exits. Set
+`NO_COLOR` for plain output. Non-terminal stdin/stdout keeps the simple line
+mode.
 
 Works with any OpenAI-compatible Responses endpoint:
 
@@ -59,10 +71,10 @@ heu
 
 ```
 › What is in note.txt? Use bash to check, then answer in one sentence.
-⚙ bash: cat note.txt
-  hello world
-◆ metacog: greedy 0.87 → 3 more thought paths → picked #1 (score 0.89), 7 judge calls, 4.9s
-The note.txt file contains the text "hello world".
+● Bash(cat note.txt)
+  ⎿ hello world
+◆ MetaCog unsure (0.87) → tried 3 more thought paths → picked #1 (0.89) · 7 judge calls · 4.9s
+● The note.txt file contains the text "hello world".
 ```
 
 Options: `-workspace <dir>`, `-metacog off|final|all`,

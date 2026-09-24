@@ -24,6 +24,8 @@ type renderer struct {
 	color      bool
 	showPrompt bool
 	thinking   bool
+	// ui switches to the full terminal UI: cards, Markdown, live status.
+	ui *tui
 }
 
 func newRenderer(out io.Writer, getenv func(string) string, showPrompt bool) *renderer {
@@ -49,6 +51,10 @@ func (r *renderer) printf(format string, args ...any) {
 
 // Observe renders one persisted session item.
 func (r *renderer) Observe(_ session.ID, item sessionstore.Item) {
+	if r.ui != nil {
+		r.observeUI(item)
+		return
+	}
 	switch item.Kind {
 	case sessionstore.ItemModelResponse:
 		r.modelResponse(item.Data.(sessionstore.ModelResponse).Response)
@@ -123,8 +129,7 @@ func (r *renderer) toolCallStatus(status sessionstore.ToolCallStatus) {
 		r.printf("✗ %s\n", truncateRunes(status.Status.Error, 500))
 		return
 	}
-	if len(status.Status.WaitingFor) != 0 {
-		// Still running; only the terminal status is rendered.
+	if stillRunning(status) {
 		return
 	}
 	rendered := false
@@ -151,6 +156,10 @@ func (r *renderer) toolCallStatus(status sessionstore.ToolCallStatus) {
 
 // Event renders one metacog trace event.
 func (r *renderer) Event(event metacog.Event) {
+	if r.ui != nil {
+		r.ui.metacogEvent(event)
+		return
+	}
 	if event.Stopped {
 		r.printf("%s\n", r.dim(fmt.Sprintf(
 			"◆ metacog: confident %.2f, no branching (%d judge call(s), %.1fs)",
