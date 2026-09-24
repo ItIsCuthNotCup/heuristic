@@ -509,6 +509,10 @@ func runSession(ctx context.Context, spec sessionSpec) (runErr error) {
 			}
 			fmt.Fprintf(flagOutput, "metacog %s\n", encoded)
 		}
+		if spec.ui != nil {
+			mcConfig.Background = true
+			mcConfig.Stage = spec.ui.setMetacogStage
+		}
 		mcAdapter = metacog.New(client, mcConfig)
 		llmAdapter = mcAdapter
 	}

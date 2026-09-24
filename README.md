@@ -86,10 +86,24 @@ this:
 Only turns that end with an answer are judged; turns that call tools pass
 straight through, so a normal agent loop costs the same as without MetaCog.
 
+### Staying fast
+
+- **You never wait for MetaCog in `heu`.** The first answer is shown as soon
+  as the model finishes, and steps 2–5 run in the background while the
+  footer shows what MetaCog is doing ("MetaCog is trying 3 more thought
+  paths…"). If a different path wins, `heu` prints it as *found a better
+  answer* and your next message continues from it. Sending a new message
+  cancels a check that hasn't finished. One-shot runs (`heuristic -p`) still
+  wait and return the winner directly.
+- **Slow paths are dropped.** The extra paths get 1.5× as long as the first
+  answer took (at least 20 s); any path still running then is cancelled and
+  the rest are judged. Each judging step gives up after 30 s and keeps the
+  first answer.
+
 When MetaCog branches, `heu` lists every path under its note:
 
 ```
-◆ MetaCog unsure (0.38) → tried 3 more thought paths → picked #2 (0.81) · 8 judge calls · 6.1s
+◆ MetaCog found a better answer: Thought Path 2 (0.81 vs 0.38) · 6.1s
   Thought Path 1  0.38  Cache the parsed config in a package variable.
 ❯ Thought Path 2  0.81  Parse the config once in main and pass it down.
   Thought Path 3  0.44  Use sync.Once around the parser.

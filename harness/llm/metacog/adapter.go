@@ -20,6 +20,17 @@ type Config struct {
 	AnswerPrior     float64     // default 0.5; <= 0 disables
 	MaxProblemChars int         // default 12000
 	Trace           func(Event) // optional sink for trace events
+	// Stage, if set, is told what MetaCog is doing ("" when it is done).
+	Stage func(string)
+	// Background returns the first answer at once and checks it
+	// afterwards; a better path is applied to later turns with UsePath and
+	// reported through Trace. A new Respond cancels a check still running.
+	Background bool
+	// Extra thought paths get BranchTimeFactor × the first answer's time,
+	// but at least MinBranchTime; paths still running then are dropped.
+	BranchTimeFactor float64       // default 1.5
+	MinBranchTime    time.Duration // default 20s
+	JudgeTimeout     time.Duration // per judging step, default 30s
 }
 
 func (c Config) withDefaults() Config {
@@ -34,6 +45,15 @@ func (c Config) withDefaults() Config {
 	}
 	if c.MaxProblemChars <= 0 {
 		c.MaxProblemChars = 12000
+	}
+	if c.BranchTimeFactor <= 0 {
+		c.BranchTimeFactor = 1.5
+	}
+	if c.MinBranchTime <= 0 {
+		c.MinBranchTime = 20 * time.Second
+	}
+	if c.JudgeTimeout <= 0 {
+		c.JudgeTimeout = 30 * time.Second
 	}
 	return c
 }
@@ -57,6 +77,13 @@ type Event struct {
 	// Final reports that every path is a final answer (no tool calls), so
 	// the conversation can continue from any of them.
 	Final bool `json:"-"`
+	// Background reports that the first answer was already returned and
+	// this event is the later check of it.
+	Background bool `json:"background,omitempty"`
+	// ExtraUsage is what the extra thought paths cost.
+	ExtraUsage llm.Usage `json:"-"`
+
+	switched bool
 }
 
 // Adapter wraps an inner llm.Adapter with the MetaCog adaptive loop: score
@@ -68,6 +95,7 @@ type Adapter struct {
 
 	mu    sync.Mutex
 	swaps map[string]string
+	check func() // cancels the running background check
 }
 
 func New(inner llm.Adapter, cfg Config) *Adapter {
@@ -109,18 +137,9 @@ func (a *Adapter) applySwaps(req llm.Request) llm.Request {
 }
 
 func (a *Adapter) Respond(ctx context.Context, req llm.Request, opts llm.RequestOptions) (llm.Response, error) {
+	a.cancelCheck()
 	req = a.applySwaps(req)
 	start := time.Now()
-	event := Event{Turn: opts.CacheKey, Chosen: 0}
-	judgeCalls := 0
-	emit := func() {
-		if a.cfg.Trace != nil && ctx.Err() == nil {
-			event.JudgeCalls = judgeCalls
-			event.DurationMs = time.Since(start).Milliseconds()
-			a.cfg.Trace(event)
-		}
-	}
-
 	greedy, err := a.inner.Respond(ctx, req, opts)
 	if err != nil {
 		return greedy, err
@@ -128,26 +147,77 @@ func (a *Adapter) Respond(ctx context.Context, req llm.Request, opts llm.Request
 	if a.cfg.Mode == ModeOff || a.cfg.Judge == nil {
 		return greedy, nil
 	}
-
-	isFinal := isFinalResponse(greedy)
-	if a.cfg.Mode == ModeFinal && !isFinal {
+	if a.cfg.Mode == ModeFinal && !isFinalResponse(greedy) {
 		// Routine agent tool step: pass through with zero judge overhead.
 		return greedy, nil
 	}
+	if a.cfg.Background && isFinalResponse(greedy) {
+		checkCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		done := make(chan struct{})
+		a.mu.Lock()
+		a.check = func() {
+			cancel()
+			<-done
+		}
+		a.mu.Unlock()
+		go func() {
+			defer close(done)
+			defer cancel()
+			a.think(checkCtx, req, opts, greedy, start, true)
+		}()
+		return greedy, nil
+	}
+	return a.think(ctx, req, opts, greedy, start, false), nil
+}
+
+// cancelCheck stops a background check that is still running, so a new turn
+// never waits for it.
+func (a *Adapter) cancelCheck() {
+	a.mu.Lock()
+	check := a.check
+	a.check = nil
+	a.mu.Unlock()
+	if check != nil {
+		check()
+	}
+}
+
+func (a *Adapter) setStage(stage string) {
+	if a.cfg.Stage != nil {
+		a.cfg.Stage(stage)
+	}
+}
+
+// think runs the MetaCog loop on greedy and returns the chosen response with
+// the usage of every inner call. In background mode greedy has already been
+// returned to the caller, so a better path is applied with UsePath.
+func (a *Adapter) think(ctx context.Context, req llm.Request, opts llm.RequestOptions, greedy llm.Response, start time.Time, background bool) llm.Response {
+	event := Event{Turn: opts.CacheKey, Chosen: 0, Background: background}
+	judgeCalls := 0
+	emit := func() {
+		if a.cfg.Trace != nil && (ctx.Err() == nil || event.switched) {
+			event.JudgeCalls = judgeCalls
+			event.DurationMs = time.Since(start).Milliseconds()
+			a.cfg.Trace(event)
+		}
+	}
+	greedyTime := time.Since(start)
+	defer a.setStage("")
 
 	problem := BuildProblem(req, a.cfg.MaxProblemChars)
 	pool := []llm.Response{greedy}
 
-	s0, err := a.judge(ctx, problem, []string{responseText(greedy)})
+	a.setStage("checking the answer")
+	s0, err := a.judgeWithin(ctx, problem, []string{responseText(greedy)}, nil)
 	judgeCalls++
 	if err != nil {
-		return greedy, nil // judge unavailable: degrade to the plain adapter
+		return greedy // judge unavailable: degrade to the plain adapter
 	}
 	event.GreedyScore = s0[0]
 	if s0[0] >= a.cfg.StopConfidence {
 		event.Stopped = true
 		emit()
-		return greedy, nil
+		return greedy
 	}
 
 	// Branching scales with the judge's uncertainty u = 1 - s0, the same
@@ -159,7 +229,9 @@ func (a *Adapter) Respond(ctx context.Context, req llm.Request, opts llm.Request
 	}
 	event.Branches = n
 
-	branches := a.branch(ctx, req, opts, n)
+	a.setStage(fmt.Sprintf("trying %d more thought paths", n))
+	budget := max(time.Duration(float64(greedyTime)*a.cfg.BranchTimeFactor), a.cfg.MinBranchTime)
+	branches := a.branch(ctx, req, opts, n, budget)
 	for _, resp := range branches {
 		if a.cfg.Mode == ModeFinal && !isFinalResponse(resp) {
 			continue
@@ -167,6 +239,7 @@ func (a *Adapter) Respond(ctx context.Context, req llm.Request, opts llm.Request
 		pool = append(pool, resp)
 	}
 	event.PoolSize = len(pool)
+	event.ExtraUsage = sumUsage(llm.Usage{}, branches)
 	// From here on every return must carry the summed usage of all inner
 	// calls, not just greedy's — branch tokens were spent either way.
 	usage := sumUsage(greedy.Usage, branches)
@@ -174,19 +247,20 @@ func (a *Adapter) Respond(ctx context.Context, req llm.Request, opts llm.Request
 	if len(pool) == 1 {
 		emit()
 		greedy.Usage = usage
-		return greedy, nil
+		return greedy
 	}
 
+	a.setStage(fmt.Sprintf("judging %d thought paths", len(pool)))
 	texts := make([]string, len(pool))
 	for i := range pool {
 		texts[i] = responseText(pool[i])
 	}
-	textScores, err := a.judge(ctx, problem, texts)
+	textScores, err := a.judgeWithin(ctx, problem, texts, nil)
 	judgeCalls += len(texts)
 	if err != nil || len(textScores) != len(pool) {
 		emit()
 		greedy.Usage = usage
-		return greedy, nil
+		return greedy
 	}
 	event.Scores = textScores
 	event.Paths = texts
@@ -216,11 +290,26 @@ func (a *Adapter) Respond(ctx context.Context, req llm.Request, opts llm.Request
 
 	chosen := argmax(totals)
 	event.Chosen = chosen
+	if background && ctx.Err() == nil && chosen != 0 && event.Final {
+		a.UsePath(texts[0], texts[chosen])
+		event.switched = true
+	}
 	emit()
 
 	selected := pool[chosen]
 	selected.Usage = usage
-	return selected, nil
+	return selected
+}
+
+// judgeWithin scores candidates, giving up after JudgeTimeout. instructions
+// selects ScoreWithInstructions when non-nil.
+func (a *Adapter) judgeWithin(ctx context.Context, problem string, candidates []string, instructions *string) ([]float64, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.cfg.JudgeTimeout)
+	defer cancel()
+	if instructions != nil {
+		return scoreWithInstructions(ctx, a.cfg.Judge, problem, candidates, *instructions)
+	}
+	return a.judge(ctx, problem, candidates)
 }
 
 // judge is Score or ScoreWithInstructions on the configured judge.
@@ -248,7 +337,8 @@ func (a *Adapter) answerPriors(ctx context.Context, problem string, texts []stri
 	for i, answer := range distinct {
 		paths[i] = "Final answer: " + answer
 	}
-	scores, err := scoreWithInstructions(ctx, a.cfg.Judge, problem, paths, AnswerPriorInstructions)
+	instructions := AnswerPriorInstructions
+	scores, err := a.judgeWithin(ctx, problem, paths, &instructions)
 	*judgeCalls += len(distinct)
 	if err != nil || len(scores) != len(distinct) {
 		return nil
@@ -269,7 +359,9 @@ func priorAnswerScore(prior map[string]float64, answer string) float64 {
 
 // branch fires n extra Respond calls on the inner adapter concurrently.
 // Failures are ignored; an empty result means every branch failed.
-func (a *Adapter) branch(ctx context.Context, req llm.Request, opts llm.RequestOptions, n int) []llm.Response {
+func (a *Adapter) branch(ctx context.Context, req llm.Request, opts llm.RequestOptions, n int, budget time.Duration) []llm.Response {
+	ctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
 	results := make([]llm.Response, n)
 	var wg sync.WaitGroup
 	for i := range n {

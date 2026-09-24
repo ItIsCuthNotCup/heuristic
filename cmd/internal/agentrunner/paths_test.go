@@ -74,6 +74,46 @@ func TestExplorePathsSwitchesPath(t *testing.T) {
 	}
 }
 
+func TestBackgroundCheckShowsBetterAnswer(t *testing.T) {
+	c, read := testConsole(t)
+	ui := newTUI(c)
+	event := pathEvent()
+	event.Background = true
+	ui.metacogEvent(event)
+	out := read()
+	for _, want := range []string{"found a better answer: Thought Path 2", "❯ Thought Path 2", "your next message continues from Thought Path 2"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+	if got := ui.takeSwitches()["Use a map."]; got != "Use a slice." {
+		t.Fatalf("switch = %q", got)
+	}
+	// Going back to the first answer swaps from the transcript's text.
+	for _, k := range []keyEvent{{kind: keyUp}, {kind: keyEnter}, {kind: keyEnter}} {
+		c.keys <- k
+	}
+	var from, to string
+	ui.explorePaths(context.Background(), func(original, replacement string) { from, to = original, replacement })
+	if from != "Use a map." || to != "Use a map." {
+		t.Fatalf("use(%q, %q)", from, to)
+	}
+}
+
+func TestMetaCogStageShowsInFooter(t *testing.T) {
+	c, _ := testConsole(t)
+	ui := newTUI(c)
+	ui.st.metacog = "MetaCog on"
+	ui.setMetacogStage("trying 3 more thought paths")
+	if got := ui.footerLocked(120); !strings.Contains(got, "MetaCog is trying 3 more thought paths…") {
+		t.Fatalf("footer = %q", got)
+	}
+	ui.setMetacogStage("")
+	if got := ui.footerLocked(120); !strings.Contains(got, "MetaCog on") {
+		t.Fatalf("footer = %q", got)
+	}
+}
+
 func TestExplorePathsBackKeepsPath(t *testing.T) {
 	c, _ := testConsole(t)
 	ui := newTUI(c)

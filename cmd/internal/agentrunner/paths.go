@@ -20,6 +20,7 @@ type thoughtPaths struct {
 	scores []float64
 	picked int // the judge's pick
 	inUse  int // the path the conversation continues from
+	shown  int // the path whose text is in the transcript
 }
 
 var mdNoise = regexp.MustCompile("[*_`#>]+")
@@ -52,7 +53,17 @@ func (t *tui) recordPaths(event metacog.Event) {
 	if !event.Final || len(event.Paths) < 2 || len(event.Paths) != len(event.Scores) {
 		return
 	}
-	t.paths = &thoughtPaths{texts: event.Paths, scores: event.Scores, picked: event.Chosen, inUse: event.Chosen}
+	shown := event.Chosen
+	if event.Background {
+		shown = 0
+		if event.Chosen != 0 {
+			if t.switched == nil {
+				t.switched = map[string]string{}
+			}
+			t.switched[event.Paths[0]] = event.Paths[event.Chosen]
+		}
+	}
+	t.paths = &thoughtPaths{texts: event.Paths, scores: event.Scores, picked: event.Chosen, inUse: event.Chosen, shown: shown}
 }
 
 // pathList renders the compact list printed under a MetaCog line.
@@ -119,7 +130,7 @@ func (t *tui) explorePaths(ctx context.Context, use func(original, replacement s
 		if err != nil || choice != 0 {
 			continue
 		}
-		use(paths.texts[paths.picked], paths.texts[index])
+		use(paths.texts[paths.shown], paths.texts[index])
 		t.mu.Lock()
 		paths.inUse = index
 		t.mu.Unlock()

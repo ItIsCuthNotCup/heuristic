@@ -182,6 +182,9 @@ func (m *tuiLoop) drive(ctx context.Context, start nextSession) (nextSession, er
 			id := string(h.id)
 			currentID = &id
 			m.showHeader(h)
+			for original, replacement := range m.t.takeSwitches() {
+				m.swaps[original] = replacement
+			}
 			if h.metacog != nil {
 				for original, replacement := range m.swaps {
 					h.metacog.UsePath(original, replacement)
@@ -437,6 +440,9 @@ func (m *tuiLoop) command(
 
 func (m *tuiLoop) explorePaths(ctx context.Context, handle *sessionHandle) {
 	m.t.explorePaths(ctx, func(original, replacement string) {
+		for o, r := range m.t.takeSwitches() {
+			m.swaps[o] = r
+		}
 		m.swaps[original] = replacement
 		if handle != nil && handle.metacog != nil {
 			handle.metacog.UsePath(original, replacement)
