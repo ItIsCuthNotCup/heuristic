@@ -210,6 +210,15 @@ func chooseProvider(a asker, catalog []providerSpec, getenv func(string) string)
 		}
 		options[i] = option{label: spec.label, detail: detail}
 	}
+	if configured := strings.TrimSpace(lookupEnv(getenv, llmProviderEnvironment)); configured != "" {
+		baseURL := strings.TrimRight(strings.TrimSpace(lookupEnv(getenv, llmBaseURLEnvironment)), "/")
+		spec, ok := matchProvider(catalog, configured, baseURL)
+		for i := range catalog {
+			if ok && catalog[i].id == spec.id || !ok && catalog[i].id == "custom" {
+				def = i
+			}
+		}
+	}
 	index, err := a.choose("How should Heuristic reach a model?",
 		"Pick one — you can switch any time with /login.", options, max(def, 0))
 	if err != nil {
@@ -219,6 +228,19 @@ func chooseProvider(a asker, catalog []providerSpec, getenv func(string) string)
 		return connection{}, err
 	}
 	return connection{spec: catalog[index], baseURL: catalog[index].baseURL}, nil
+}
+
+// matchProvider finds the catalog entry for a configured provider and base URL.
+func matchProvider(catalog []providerSpec, provider, baseURL string) (providerSpec, bool) {
+	for _, spec := range catalog {
+		if spec.provider != provider || spec.id == "custom" {
+			continue
+		}
+		if spec.baseURL == baseURL || (spec.baseURL == "" && (baseURL == "" || spec.id == "openai" && strings.Contains(baseURL, "api.openai.com"))) {
+			return spec, true
+		}
+	}
+	return providerSpec{}, false
 }
 
 func envKey(spec providerSpec, getenv func(string) string) string {

@@ -545,3 +545,20 @@ func TestErrorHintPointsSettingsErrorsAtConfig(t *testing.T) {
 		t.Fatalf("generic error hint = %q, want /login hint", got)
 	}
 }
+
+func TestChooseProviderDefaultsToConfigured(t *testing.T) {
+	env := map[string]string{
+		"HEURISTIC_LLM_PROVIDER": "openai",
+		"HEURISTIC_LLM_BASE_URL": commandCodeBaseURL,
+		"HEURISTIC_LLM_API_KEY":  "bogus",
+	}
+	var out bytes.Buffer
+	a := &lineAsker{reader: bufio.NewReader(strings.NewReader("\n")), out: &out}
+	conn, err := chooseProvider(a, providerCatalog(), func(name string) string { return env[name] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conn.spec.id != "commandcode" {
+		t.Fatalf("default provider = %q, want commandcode\n%s", conn.spec.id, out.String())
+	}
+}
