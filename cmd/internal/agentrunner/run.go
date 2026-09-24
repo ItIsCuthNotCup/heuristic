@@ -407,6 +407,7 @@ type sessionHandle struct {
 	baseURL  string
 	model    string
 	judge    string
+	metacog  *metacog.Adapter
 }
 
 type resolvedClient struct {
@@ -487,6 +488,7 @@ func runSession(ctx context.Context, spec sessionSpec) (runErr error) {
 		render = newRenderer(output, getenv, !spec.oneShot)
 	}
 	var llmAdapter llm.Adapter = client
+	var mcAdapter *metacog.Adapter
 	if mcConfig.Mode != metacog.ModeOff && mcConfig.Judge != nil {
 		if !config.Interactive {
 			if _, err := fmt.Fprintf(flagOutput, "metacog: judge=%s mode=%s\n", mcJudge, mcConfig.Mode); err != nil {
@@ -507,7 +509,8 @@ func runSession(ctx context.Context, spec sessionSpec) (runErr error) {
 			}
 			fmt.Fprintf(flagOutput, "metacog %s\n", encoded)
 		}
-		llmAdapter = metacog.New(client, mcConfig)
+		mcAdapter = metacog.New(client, mcConfig)
+		llmAdapter = mcAdapter
 	}
 
 	storeDirectory, err := filepath.Abs(strings.TrimSpace(spec.sessionDirectory))
@@ -669,6 +672,7 @@ func runSession(ctx context.Context, spec sessionSpec) (runErr error) {
 		spec.onReady(sessionHandle{
 			id: sessionID, inputs: inputs, context: runContext,
 			provider: selected.Name, baseURL: resolved.baseURL, model: model, judge: mcJudge,
+			metacog: mcAdapter,
 		})
 	} else if config.Interactive {
 		mcLine := "metacog: off"

@@ -26,6 +26,7 @@ type slashCommand struct {
 var slashCommands = []slashCommand{
 	{name: "/model", help: "switch model"},
 	{name: "/login", help: "sign in or change provider"},
+	{name: "/paths", help: "see MetaCog's thought paths and switch between them"},
 	{name: "/metacog", args: "[on|off]", help: "turn MetaCog on or off"},
 	{name: "/new", help: "start a fresh conversation"},
 	{name: "/resume", help: "pick up an earlier conversation"},
@@ -64,6 +65,7 @@ type tui struct {
 	notice   string
 	st       status
 	lastTool string
+	paths    *thoughtPaths
 }
 
 func newTUI(c *console) *tui {
@@ -321,6 +323,13 @@ func (t *tui) metacogEvent(event metacog.Event) {
 			p.dim(fmt.Sprintf("unsure (%.2f) → tried %d more thought paths → picked #%d (%.2f) · %d judge calls · %.1fs",
 				event.GreedyScore, event.Branches, event.Chosen+1, score, event.JudgeCalls, secs)))
 	}
+	t.recordPaths(event)
+	t.mu.Lock()
+	paths := t.paths
+	t.mu.Unlock()
+	if event.Final && len(event.Paths) > 1 && paths != nil {
+		line += "\n" + strings.TrimSuffix(t.pathList(paths, t.c.width()), "\n")
+	}
 	t.c.Print(line + "\n")
 }
 
@@ -552,6 +561,7 @@ func (t *tui) helpText() string {
 		{"esc", "interrupt the agent · clear the input"},
 		{"ctrl+c twice", "exit"},
 		{"ctrl+o", "show the full output of the last command"},
+		{"ctrl+t", "open MetaCog's thought paths"},
 		{"ctrl+l", "clear the screen"},
 	} {
 		fmt.Fprintf(&b, "  %-20s %s\n", pair[0], p.dim(pair[1]))

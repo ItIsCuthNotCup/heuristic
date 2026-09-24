@@ -38,6 +38,7 @@ const (
 	keyCtrlD
 	keyCtrlL
 	keyCtrlO
+	keyCtrlT
 	keyCtrlU
 	keyCtrlW
 	keyPaste
@@ -160,6 +161,8 @@ func (d *keyDecoder) decode(chunk []byte) []keyEvent {
 			events = append(events, keyEvent{kind: keyCtrlL})
 		case b == 0x0f:
 			events = append(events, keyEvent{kind: keyCtrlO})
+		case b == 0x14:
+			events = append(events, keyEvent{kind: keyCtrlT})
 		case b == 0x15:
 			events = append(events, keyEvent{kind: keyCtrlU})
 		case b == 0x17:
@@ -198,6 +201,11 @@ type console struct {
 	mu        sync.Mutex
 	view      func(width int) (lines []string, cursorRow, cursorCol int)
 	cursorRow int
+	// drawn holds the printed width of each live-region line above the
+	// cursor, so a clear after a resize accounts for rows the terminal
+	// re-wrapped.
+	drawn     []int
+	cursorCol int
 	closed    bool
 	stopSig   func()
 }
@@ -308,11 +316,25 @@ func (c *console) Print(text string) {
 }
 
 func (c *console) clearLocked() {
-	if c.cursorRow > 0 {
-		io.WriteString(c.out, "\x1b["+itoa(c.cursorRow)+"A")
+	if up := liveRowsAbove(c.drawn, c.cursorCol, c.width()); up > 0 {
+		io.WriteString(c.out, "\x1b["+itoa(up)+"A")
 	}
 	io.WriteString(c.out, "\r\x1b[J")
-	c.cursorRow = 0
+	c.cursorRow, c.cursorCol, c.drawn = 0, 0, nil
+}
+
+// liveRowsAbove is how many terminal rows the cursor sits below the top of
+// the live region, given the widths of the lines above it and the cursor
+// column, once the terminal has re-wrapped them to width.
+func liveRowsAbove(lineWidths []int, col, width int) int {
+	if width <= 0 {
+		return len(lineWidths)
+	}
+	rows := 0
+	for _, w := range lineWidths {
+		rows += max(1, (w+width-1)/width)
+	}
+	return rows + col/width
 }
 
 func (c *console) drawLocked() {
@@ -342,7 +364,11 @@ func (c *console) drawLocked() {
 	}
 	b.WriteString("\x1b[?25h")
 	io.WriteString(c.out, b.String())
-	c.cursorRow = row
+	c.cursorRow, c.cursorCol = row, col
+	c.drawn = make([]int, 0, row)
+	for _, line := range lines[:min(row, len(lines))] {
+		c.drawn = append(c.drawn, visibleLen(fit(line, width)))
+	}
 }
 
 func itoa(n int) string {

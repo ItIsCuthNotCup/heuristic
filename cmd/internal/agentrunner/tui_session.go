@@ -68,6 +68,8 @@ type tuiLoop struct {
 	overrides map[string]string
 	header    string
 	lastCtrlC time.Time
+	// swaps are thought-path switches, reapplied to every new session.
+	swaps map[string]string
 }
 
 func runTUI(ctx context.Context, spec sessionSpec) error {
@@ -76,7 +78,7 @@ func runTUI(ctx context.Context, spec sessionSpec) error {
 		return err
 	}
 	defer c.Close()
-	m := &tuiLoop{t: newTUI(c), spec: spec, base: spec.getenv, overrides: map[string]string{}}
+	m := &tuiLoop{t: newTUI(c), spec: spec, base: spec.getenv, overrides: map[string]string{}, swaps: map[string]string{}}
 	m.spec.getenv = overlayEnv(m.base, m.overrides)
 	m.t.banner("")
 	if resolved, err := resolveClient(m.spec); err == nil {
@@ -180,6 +182,11 @@ func (m *tuiLoop) drive(ctx context.Context, start nextSession) (nextSession, er
 			id := string(h.id)
 			currentID = &id
 			m.showHeader(h)
+			if h.metacog != nil {
+				for original, replacement := range m.swaps {
+					h.metacog.UsePath(original, replacement)
+				}
+			}
 			for _, text := range queued {
 				submitText(handle, text)
 			}
@@ -261,6 +268,12 @@ func (m *tuiLoop) drive(ctx context.Context, start nextSession) (nextSession, er
 				}
 			case keyCtrlL:
 				t.c.Print("\x1b[H\x1b[2J")
+			case keyCtrlT:
+				if running && t.isWorking() {
+					t.setNotice("The agent is working — press Esc to interrupt first")
+					break
+				}
+				m.explorePaths(ctx, handle)
 			case keyCtrlO:
 				t.mu.Lock()
 				last := t.lastTool
@@ -406,6 +419,11 @@ func (m *tuiLoop) command(
 		return stopThen(nextSession{sessionID: currentID, after: func(ctx context.Context, next *nextSession) {
 			m.setMetaCog(ctx, arg)
 		}})
+	case "/paths":
+		if needsIdle() {
+			break
+		}
+		m.explorePaths(ctx, handle)
 	case "/resume":
 		if needsIdle() {
 			break
@@ -415,6 +433,15 @@ func (m *tuiLoop) command(
 		t.setNotice("Unknown command " + name + " — type / to see commands")
 	}
 	return nextSession{}, false
+}
+
+func (m *tuiLoop) explorePaths(ctx context.Context, handle *sessionHandle) {
+	m.t.explorePaths(ctx, func(original, replacement string) {
+		m.swaps[original] = replacement
+		if handle != nil && handle.metacog != nil {
+			handle.metacog.UsePath(original, replacement)
+		}
+	})
 }
 
 // apply makes values take effect for the next session and saves them.

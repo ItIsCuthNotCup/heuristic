@@ -1,0 +1,129 @@
+package agentrunner
+
+// Thought paths: when MetaCog branches, heu lists every path it tried with a
+// one-line summary and the judge's score, and lets the user open any path in
+// full and continue the conversation from it instead of the judge's pick.
+
+import (
+	"context"
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/ItIsCuthNotCup/heuristic/harness/llm/metacog"
+)
+
+// thoughtPaths is the most recent MetaCog decision that tried more than one
+// path.
+type thoughtPaths struct {
+	texts  []string
+	scores []float64
+	picked int // the judge's pick
+	inUse  int // the path the conversation continues from
+}
+
+var mdNoise = regexp.MustCompile("[*_`#>]+")
+
+// pathSummary is the first line of prose in a thought path, without
+// Markdown markup, cut to width runes.
+func pathSummary(text string, width int) string {
+	inFence := false
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		trimmed = strings.TrimSpace(mdNoise.ReplaceAllString(trimmed, ""))
+		trimmed = strings.TrimSpace(strings.TrimLeft(trimmed, "-+|"))
+		if trimmed != "" {
+			return truncateRunes(strings.Join(strings.Fields(trimmed), " "), max(width, 10))
+		}
+	}
+	return "(empty)"
+}
+
+func (t *tui) recordPaths(event metacog.Event) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !event.Final || len(event.Paths) < 2 || len(event.Paths) != len(event.Scores) {
+		return
+	}
+	t.paths = &thoughtPaths{texts: event.Paths, scores: event.Scores, picked: event.Chosen, inUse: event.Chosen}
+}
+
+// pathList renders the compact list printed under a MetaCog line.
+func (t *tui) pathList(paths *thoughtPaths, width int) string {
+	p := t.p
+	var b strings.Builder
+	for i, text := range paths.texts {
+		label := fmt.Sprintf("Thought Path %d", i+1)
+		score := fmt.Sprintf("%.2f", paths.scores[i])
+		summary := pathSummary(text, width-len(label)-14)
+		if i == paths.inUse {
+			fmt.Fprintf(&b, "%s %s  %s  %s\n", p.accent("❯"), p.bold(label), score, summary)
+		} else {
+			fmt.Fprintf(&b, "  %s  %s  %s\n", p.dim(label), p.dim(score), p.dim(summary))
+		}
+	}
+	b.WriteString(p.dim("  ctrl+t to open a path or continue from a different one") + "\n")
+	return b.String()
+}
+
+// explorePaths lets the user read any thought path in full and switch the
+// conversation onto it. use applies the switch to the running session.
+func (t *tui) explorePaths(ctx context.Context, use func(original, replacement string)) {
+	p := t.p
+	t.mu.Lock()
+	paths := t.paths
+	t.mu.Unlock()
+	if paths == nil {
+		t.setNotice("No thought paths yet — MetaCog lists them when it isn't sure of an answer")
+		return
+	}
+	a := newTTYAsker(t.c)
+	defer t.c.SetView(t.view)
+	selected := paths.inUse
+	for ctx.Err() == nil {
+		options := make([]option, len(paths.texts))
+		for i, text := range paths.texts {
+			detail := fmt.Sprintf("%.2f", paths.scores[i])
+			switch {
+			case i == paths.inUse && i == paths.picked:
+				detail += " · picked, in use"
+			case i == paths.inUse:
+				detail += " · in use"
+			case i == paths.picked:
+				detail += " · judge's pick"
+			}
+			options[i] = option{label: fmt.Sprintf("Thought Path %d", i+1), detail: detail + " · " + pathSummary(text, 60)}
+		}
+		index, err := a.choose("Thought paths", "Enter opens a path. The score is how likely the judge thinks it's right.", options, selected)
+		if err != nil {
+			return
+		}
+		selected = index
+		label := fmt.Sprintf("Thought Path %d", index+1)
+		t.c.Print("\n" + p.accent("◆ ") + p.bold(label) + p.dim(fmt.Sprintf(" · %.2f", paths.scores[index])) + "\n" +
+			renderMarkdown(strings.TrimSpace(paths.texts[index]), p) + "\n")
+		if index == paths.inUse {
+			continue
+		}
+		choice, err := a.choose(label, "", []option{
+			{label: "Continue from this path", detail: "your next message builds on it"},
+			{label: "Back to the list"},
+		}, 0)
+		if err != nil || choice != 0 {
+			continue
+		}
+		use(paths.texts[paths.picked], paths.texts[index])
+		t.mu.Lock()
+		paths.inUse = index
+		t.mu.Unlock()
+		t.c.Print(p.green("✓") + " Continuing from " + label + "\n")
+		return
+	}
+}

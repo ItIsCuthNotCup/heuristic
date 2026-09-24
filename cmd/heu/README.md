@@ -48,6 +48,7 @@ Commands (type `/` for a menu, Tab completes):
 | --- | --- |
 | `/model` | switch model (live list from the provider) |
 | `/login` · `/logout` | sign in / change provider · forget saved sign-in and keys |
+| `/paths` | see MetaCog's thought paths and continue from a different one |
 | `/metacog on\|off` | turn MetaCog on or off |
 | `/new` · `/resume` | fresh conversation · pick an earlier one |
 | `/session` · `/clear` · `/help` · `/quit` | |
@@ -55,7 +56,8 @@ Commands (type `/` for a menu, Tab completes):
 
 Keys: Enter sends, Shift+Enter / Ctrl+J / trailing `\` for a new line,
 ↑↓ history, Esc interrupts the agent (or clears the input), Ctrl+O shows the
-full output of the last command, Ctrl+L clears, Ctrl+C twice exits. Set
+full output of the last command, Ctrl+T opens the thought paths
+([how they work](../../README.md#thought-paths)), Ctrl+L clears, Ctrl+C twice exits. Set
 `NO_COLOR` for plain output. Non-terminal stdin/stdout keeps the simple line
 mode.
 
