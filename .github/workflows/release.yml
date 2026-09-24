@@ -47,8 +47,10 @@ jobs:
               mkdir -p "dist/$archive"
               GOOS="$target_os" GOARCH="$target_arch" go build -mod=readonly -trimpath \
                 -o "dist/$archive/heuristic" ./cmd/heuristic
+              GOOS="$target_os" GOARCH="$target_arch" go build -mod=readonly -trimpath \
+                -o "dist/$archive/heu" ./cmd/heu
               cp LICENSE "dist/$archive/"
-              tar -czf "dist/$archive.tar.gz" -C "dist/$archive" heuristic LICENSE
+              tar -czf "dist/$archive.tar.gz" -C "dist/$archive" heuristic heu LICENSE
             done
           done
           (cd dist && sha256sum ./*.tar.gz > SHA256SUMS)

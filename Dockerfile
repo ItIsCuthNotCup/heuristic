@@ -5,7 +5,8 @@ RUN go mod download
 COPY cmd/ cmd/
 COPY harness/ harness/
 COPY internal/ internal/
-RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -o /out/heuristic ./cmd/heuristic
+RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -o /out/heuristic ./cmd/heuristic \
+    && CGO_ENABLED=0 go build -trimpath -buildvcs=false -o /out/heu ./cmd/heu
 
 # Debian 13.7 (trixie), image build 2026-09-18.
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
@@ -14,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends bash ca-certifi
     && mkdir -p /workspace /home/agent \
     && chown 10001:10001 /workspace /home/agent
 COPY --from=build /out/heuristic /usr/local/bin/heuristic
+COPY --from=build /out/heu /usr/local/bin/heu
 COPY LICENSE /usr/share/doc/heuristic/LICENSE
 ENV HOME=/home/agent SHELL=/bin/bash
 USER 10001:10001

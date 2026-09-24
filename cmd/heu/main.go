@@ -1,4 +1,6 @@
-// Command heuristic executes one JSON request and writes persisted session items as JSONL.
+// Command heu is the interactive Heuristic agent: it runs the same runner as
+// heuristic but renders a human-readable transcript and reads follow-up
+// requests from stdin instead of JSONL.
 package main
 
 import (
@@ -16,7 +18,8 @@ func main() {
 		ctx, os.Args[1:], os.Getenv, os.Environ,
 		os.Stdin, os.Stdout, os.Stderr,
 		agentrunner.Config{
-			Name:         "heuristic",
+			Name:         "heu",
+			Interactive:  true,
 			ParseRequest: agentrunner.DefaultParseRequest,
 			Providers:    agentrunner.DefaultProviders(),
 		},

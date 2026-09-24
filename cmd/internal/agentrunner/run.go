@@ -1,6 +1,7 @@
 package agentrunner
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json/v2"
@@ -139,11 +140,13 @@ func RunMain(
 	if context.Cause(ctx) != nil {
 		return 130
 	}
-	encoded, encodeErr := json.Marshal(errorEvent{Type: "error", Message: err.Error()})
-	if encodeErr != nil {
-		err = errors.Join(err, fmt.Errorf("encode error event: %w", encodeErr))
-	} else if _, writeErr := fmt.Fprintf(output, "%s\n", encoded); writeErr != nil {
-		err = errors.Join(err, fmt.Errorf("write error event: %w", writeErr))
+	if !config.Interactive {
+		encoded, encodeErr := json.Marshal(errorEvent{Type: "error", Message: err.Error()})
+		if encodeErr != nil {
+			err = errors.Join(err, fmt.Errorf("encode error event: %w", encodeErr))
+		} else if _, writeErr := fmt.Fprintf(output, "%s\n", encoded); writeErr != nil {
+			err = errors.Join(err, fmt.Errorf("write error event: %w", writeErr))
+		}
 	}
 	prefix := ""
 	if config.Name != "" {
@@ -175,7 +178,7 @@ func Run(
 	flags.SetOutput(flagOutput)
 	var usageErr error
 	flags.Usage = func() {
-		usageErr = writeUsage(flags)
+		usageErr = writeUsage(flags, config.Interactive)
 	}
 	var prompt *string
 	flags.Func("p", "send a request with the given `prompt` without reading stdin", func(value string) error {
@@ -187,6 +190,10 @@ func Run(
 	logDirectory := flags.String("log-directory", "", "session JSONL log directory; defaults to <workspace>/logs")
 	toolHeartbeatInterval := flags.Duration("tool-heartbeat-interval", 10*time.Minute, "tool-wait heartbeat interval (0 disables)")
 	metacogMode := flags.String("metacog", "", "metacognition mode: off|final|all (off disables the judge wrapper)")
+	var resumeID *string
+	if config.Interactive {
+		resumeID = flags.String("resume", "", "resume the session with this ID")
+	}
 	if err := flags.Parse(args); err != nil {
 		if usageErr != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -196,7 +203,7 @@ func Run(
 		}
 		return err
 	}
-	if flags.NArg() > 1 {
+	if flags.NArg() > 1 && !config.Interactive {
 		return errors.New("expected at most one positional JSON request")
 	}
 	if prompt != nil && flags.NArg() != 0 {
@@ -211,26 +218,49 @@ func Run(
 		}
 	}
 
-	if prompt != nil {
-		encoded, err := json.Marshal(struct {
-			Prompt string `json:"prompt"`
-		}{Prompt: *prompt})
-		if err != nil {
-			return fmt.Errorf("encode prompt request: %w", err)
+	var parsed Request
+	var newTools ToolFactory
+	var err error
+	if config.Interactive {
+		// Positional args join into a plain-text prompt; stdin is the
+		// follow-up input channel, not a JSON request.
+		initial := ""
+		if prompt != nil {
+			initial = *prompt
+		} else if flags.NArg() > 0 {
+			initial = strings.Join(flags.Args(), " ")
 		}
-		input = bytes.NewReader(encoded)
-	} else if flags.NArg() == 1 {
-		input = strings.NewReader(flags.Arg(0))
-	}
-	parsed, newTools, err := config.ParseRequest(input)
-	if err != nil {
-		return err
+		if initial != "" {
+			parsed.Prompt = &initial
+		}
+		if *resumeID != "" {
+			parsed.SessionID = resumeID
+		}
+		newTools = defaultToolFactory(parsed)
+	} else {
+		if prompt != nil {
+			encoded, err := json.Marshal(struct {
+				Prompt string `json:"prompt"`
+			}{Prompt: *prompt})
+			if err != nil {
+				return fmt.Errorf("encode prompt request: %w", err)
+			}
+			input = bytes.NewReader(encoded)
+		} else if flags.NArg() == 1 {
+			input = strings.NewReader(flags.Arg(0))
+		}
+		parsed, newTools, err = config.ParseRequest(input)
+		if err != nil {
+			return err
+		}
 	}
 	if newTools == nil {
 		return errors.New("request parser returned no tool factory")
 	}
-	messages, err := validateRequest(parsed)
-	if err != nil {
+	var messages []RequestMessage
+	if config.Interactive && parsed.Prompt == nil && parsed.Messages == nil {
+		// Interactive start with no initial message: wait for stdin.
+	} else if messages, err = validateRequest(parsed); err != nil {
 		return err
 	}
 	workspace, err := filepath.Abs(strings.TrimSpace(*workspaceDirectory))
@@ -308,10 +338,16 @@ func Run(
 	if err != nil {
 		return err
 	}
+	var render *renderer
+	if config.Interactive {
+		render = newRenderer(output, getenv, prompt == nil)
+	}
 	var llmAdapter llm.Adapter = client
 	if mcConfig.Mode != metacog.ModeOff && mcConfig.Judge != nil {
-		if _, err := fmt.Fprintf(flagOutput, "metacog: judge=%s mode=%s\n", mcJudge, mcConfig.Mode); err != nil {
-			return fmt.Errorf("write metacog notice: %w", err)
+		if !config.Interactive {
+			if _, err := fmt.Fprintf(flagOutput, "metacog: judge=%s mode=%s\n", mcJudge, mcConfig.Mode); err != nil {
+				return fmt.Errorf("write metacog notice: %w", err)
+			}
 		}
 		var traceMu sync.Mutex
 		mcConfig.Trace = func(event metacog.Event) {
@@ -321,6 +357,10 @@ func Run(
 			}
 			traceMu.Lock()
 			defer traceMu.Unlock()
+			if render != nil {
+				render.Event(event)
+				return
+			}
 			fmt.Fprintf(flagOutput, "metacog %s\n", encoded)
 		}
 		llmAdapter = metacog.New(client, mcConfig)
@@ -347,7 +387,12 @@ func Run(
 			runErr = errors.Join(runErr, fmt.Errorf("close session log: %w", err))
 		}
 	}()
-	observedOutput := io.MultiWriter(logFile, output)
+	// Interactive mode keeps the JSONL session items in the log file only;
+	// the terminal gets the rendered transcript from a second observer.
+	observedOutput := io.Writer(logFile)
+	if !config.Interactive {
+		observedOutput = io.MultiWriter(logFile, output)
+	}
 
 	runContext, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -436,14 +481,18 @@ func Run(
 		}
 	}
 
-	stopPayload, err := json.Marshal(inbox.ControlMessage{Mode: inbox.StopWhenIdle})
-	if err != nil {
-		return fmt.Errorf("encode stop request: %w", err)
-	}
-	if err := inputs.Submit(runContext, inbox.Input{
-		ID: inbox.ID(uuid.New().String()), Kind: inbox.InputControl, Payload: stopPayload,
-	}); err != nil {
-		return fmt.Errorf("submit stop request: %w", err)
+	// Interactive REPL mode stays alive for follow-up input; the input loop
+	// submits StopWhenIdle on /quit or EOF. -p still runs to idle.
+	if !config.Interactive || prompt != nil {
+		stopPayload, err := json.Marshal(inbox.ControlMessage{Mode: inbox.StopWhenIdle})
+		if err != nil {
+			return fmt.Errorf("encode stop request: %w", err)
+		}
+		if err := inputs.Submit(runContext, inbox.Input{
+			ID: inbox.ID(uuid.New().String()), Kind: inbox.InputControl, Payload: stopPayload,
+		}); err != nil {
+			return fmt.Errorf("submit stop request: %w", err)
+		}
 	}
 
 	builder := contextbuilder.NewBuilder(registry.Skills()...)
@@ -467,6 +516,30 @@ func Run(
 	}
 	observerID := store.AddObserver(observer.Observe)
 	defer store.RemoveObserver(observerID)
+	var renderID sessionstore.ObserverID
+	if render != nil {
+		renderID = store.AddObserver(render.Observe)
+		defer store.RemoveObserver(renderID)
+	}
+	if config.Interactive {
+		mcLine := "metacog: off"
+		if mcConfig.Mode != metacog.ModeOff && mcConfig.Judge != nil {
+			mcLine = fmt.Sprintf("metacog: judge=%s mode=%s", mcJudge, mcConfig.Mode)
+		}
+		if _, err := fmt.Fprintf(output,
+			"Heuristic — an agent that doesn't overthink\n%s/%s · workspace %s\n%s · session %s\ntype a request; /help for commands, /quit to exit\n",
+			selected.Name, model, workspace, mcLine, sessionID); err != nil {
+			return fmt.Errorf("write banner: %w", err)
+		}
+		if prompt == nil {
+			if _, err := fmt.Fprint(output, "\n› "); err != nil {
+				return fmt.Errorf("write prompt: %w", err)
+			}
+		}
+	}
+	if config.Interactive && prompt == nil {
+		go runInputLoop(runContext, input, inputs, output, sessionID)
+	}
 	current := coordinator.New(coordinator.Dependencies{
 		ToolHeartbeatInterval: *toolHeartbeatInterval,
 		SessionID:             sessionID,
@@ -483,9 +556,56 @@ func Run(
 		return observerErr
 	}
 	if coordinatorErr != nil {
+		if config.Interactive && errors.Is(coordinatorErr, context.Canceled) && ctx.Err() != nil {
+			fmt.Fprintf(output, "\ninterrupted — resume with: %s -resume %s\n", config.Name, sessionID)
+			return nil
+		}
 		return fmt.Errorf("run coordinator: %w", coordinatorErr)
 	}
 	return nil
+}
+
+// runInputLoop feeds interactive stdin lines into the inbox as external
+// inputs and handles slash commands. It ends on /quit, /exit, or EOF, all of
+// which submit StopWhenIdle so the coordinator drains and Run returns.
+func runInputLoop(ctx context.Context, input io.Reader, inputs *inbox.Inbox, output io.Writer, sessionID session.ID) {
+	scanner := bufio.NewScanner(input)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	stop := func() {
+		payload, err := json.Marshal(inbox.ControlMessage{Mode: inbox.StopWhenIdle})
+		if err != nil {
+			return
+		}
+		inputs.Submit(ctx, inbox.Input{
+			ID: inbox.ID(uuid.New().String()), Kind: inbox.InputControl, Payload: payload,
+		})
+	}
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		switch {
+		case line == "/quit" || line == "/exit":
+			stop()
+			return
+		case line == "/session":
+			fmt.Fprintf(output, "session %s\nresume with: heu -resume %s\n", sessionID, sessionID)
+		case line == "/help":
+			fmt.Fprint(output, "/session — session id and resume command\n/quit, /exit — finish and exit\nanything else — send to the agent\n")
+		case strings.HasPrefix(line, "/"):
+			fmt.Fprintf(output, "unknown command %s (see /help)\n", line)
+		default:
+			payload, err := json.Marshal(line)
+			if err != nil {
+				continue
+			}
+			inputs.Submit(ctx, inbox.Input{
+				ID: inbox.ID(uuid.New().String()), Kind: inbox.InputExternal, Payload: payload,
+			})
+		}
+	}
+	stop() // EOF
 }
 
 func resolveMaxAttempts(requested *int, getenv func(string) string) (int, error) {
