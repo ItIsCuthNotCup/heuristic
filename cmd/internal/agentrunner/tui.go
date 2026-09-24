@@ -66,6 +66,8 @@ type tui struct {
 	st       status
 	lastTool string
 	paths    *thoughtPaths
+	mcStage  string            // what MetaCog is doing now, "" when idle
+	switched map[string]string // thought-path switches MetaCog made itself
 }
 
 func newTUI(c *console) *tui {
@@ -131,7 +133,11 @@ func (t *tui) view(width int) ([]string, int, int) {
 	if t.working {
 		elapsed := int(time.Since(t.since).Seconds())
 		spin := p.accent(spinnerFrames[t.frame%len(spinnerFrames)])
-		lines = append(lines, fit(fmt.Sprintf("%s %s %s", spin, t.activity,
+		activity := t.activity
+		if t.mcStage != "" {
+			activity += p.dim(" · MetaCog is " + t.mcStage + "…")
+		}
+		lines = append(lines, fit(fmt.Sprintf("%s %s %s", spin, activity,
 			p.dim(fmt.Sprintf("(%ds · esc to interrupt)", elapsed))), width))
 	}
 	rule := p.dim(strings.Repeat("─", max(width, 1)))
@@ -163,7 +169,11 @@ func (t *tui) footerLocked(width int) string {
 	if t.notice != "" {
 		return "  " + p.yellow(t.notice)
 	}
-	parts := []string{t.st.model, t.st.provider, t.st.metacog}
+	mc := t.st.metacog
+	if t.mcStage != "" && !t.working {
+		mc = "MetaCog is " + t.mcStage + "…"
+	}
+	parts := []string{t.st.model, t.st.provider, mc}
 	if t.st.tokens > 0 {
 		parts = append(parts, formatTokens(t.st.tokens)+" tokens")
 	}
@@ -293,6 +303,23 @@ func (t *tui) setNotice(text string) {
 	t.c.Redraw()
 }
 
+func (t *tui) setMetacogStage(stage string) {
+	t.mu.Lock()
+	t.mcStage = stage
+	t.mu.Unlock()
+	t.c.Redraw()
+}
+
+// takeSwitches returns and clears the thought-path switches MetaCog made on
+// its own, so they can be reapplied to a new session.
+func (t *tui) takeSwitches() map[string]string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := t.switched
+	t.switched = nil
+	return out
+}
+
 func (t *tui) tick() {
 	t.mu.Lock()
 	working := t.working
@@ -323,12 +350,22 @@ func (t *tui) metacogEvent(event metacog.Event) {
 			p.dim(fmt.Sprintf("unsure (%.2f) → tried %d more thought paths → picked #%d (%.2f) · %d judge calls · %.1fs",
 				event.GreedyScore, event.Branches, event.Chosen+1, score, event.JudgeCalls, secs)))
 	}
+	if event.Background {
+		t.addUsage(event.ExtraUsage)
+		line = t.backgroundLine(event)
+	}
 	t.recordPaths(event)
 	t.mu.Lock()
 	paths := t.paths
 	t.mu.Unlock()
 	if event.Final && len(event.Paths) > 1 && paths != nil {
 		line += "\n" + strings.TrimSuffix(t.pathList(paths, t.c.width()), "\n")
+		if event.Background && event.Chosen != 0 {
+			label := fmt.Sprintf("Thought Path %d", event.Chosen+1)
+			line += "\n\n" + p.accent("◆ ") + p.bold(label) + "\n" +
+				renderMarkdown(strings.TrimSpace(event.Paths[event.Chosen]), p) + "\n" +
+				p.dim("  your next message continues from "+label)
+		}
 	}
 	t.c.Print(line + "\n")
 }
@@ -567,4 +604,21 @@ func (t *tui) helpText() string {
 		fmt.Fprintf(&b, "  %-20s %s\n", pair[0], p.dim(pair[1]))
 	}
 	return b.String()
+}
+
+// backgroundLine is the MetaCog line for a check that ran after the first
+// answer was already shown.
+func (t *tui) backgroundLine(event metacog.Event) string {
+	p := t.p
+	head := p.accent("◆") + " " + p.bold("MetaCog") + " "
+	secs := float64(event.DurationMs) / 1000
+	switch {
+	case event.Stopped:
+		return head + p.dim(fmt.Sprintf("checked the answer: confident (%.2f) · %.1fs", event.GreedyScore, secs))
+	case len(event.Scores) == 0 || event.Chosen == 0:
+		return head + p.dim(fmt.Sprintf("double-checked with %d more thought paths: the first answer holds · %.1fs",
+			event.Branches, secs))
+	}
+	return head + fmt.Sprintf("found a better answer: Thought Path %d (%.2f vs %.2f)", event.Chosen+1,
+		event.Scores[event.Chosen], event.Scores[0]) + p.dim(fmt.Sprintf(" · %.1fs", secs))
 }

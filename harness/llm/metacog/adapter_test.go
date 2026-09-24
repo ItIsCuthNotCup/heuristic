@@ -3,9 +3,12 @@ package metacog
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
 )
@@ -399,5 +402,108 @@ func TestUsePathRewritesHistory(t *testing.T) {
 	}
 	if req.Input[2].Data.(llm.Message).Text != "picked answer" {
 		t.Fatal("caller's request was mutated")
+	}
+}
+
+// scriptedInner answers the first call at once; later calls wait for their
+// delay or for the context to end.
+type scriptedInner struct {
+	calls  atomic.Int32
+	texts  []string
+	delays []time.Duration
+}
+
+func (s *scriptedInner) Respond(ctx context.Context, req llm.Request, opts llm.RequestOptions) (llm.Response, error) {
+	i := int(s.calls.Add(1)) - 1
+	i = min(i, len(s.texts)-1)
+	select {
+	case <-time.After(s.delays[i]):
+		return messageResponse(fmt.Sprint("r", i), s.texts[i]), nil
+	case <-ctx.Done():
+		return llm.Response{}, ctx.Err()
+	}
+}
+
+func TestSlowBranchesAreDropped(t *testing.T) {
+	inner := &scriptedInner{texts: []string{"first", "fast", "slow"}, delays: []time.Duration{0, 0, time.Minute}}
+	judge := &fakeJudge{batches: [][]float64{{0.1}, {0.2, 0.9}}}
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, NMin: 2, NMax: 2, MinBranchTime: 50 * time.Millisecond})
+	begin := time.Now()
+	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(begin) > 5*time.Second {
+		t.Fatalf("waited %v for a slow branch", time.Since(begin))
+	}
+	if got := responseText(resp); got != "fast" {
+		t.Fatalf("got %q, want the fast branch", got)
+	}
+}
+
+func TestBackgroundReturnsFirstAnswerThenSwitches(t *testing.T) {
+	inner := &scriptedInner{texts: []string{"first", "better"}, delays: []time.Duration{0, 20 * time.Millisecond}}
+	judge := &fakeJudge{batches: [][]float64{{0.2}, {0.2, 0.9}}}
+	events := make(chan Event, 1)
+	var stages []string
+	var stageMu sync.Mutex
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, NMin: 1, NMax: 1, Background: true,
+		Trace: func(e Event) { events <- e },
+		Stage: func(s string) { stageMu.Lock(); stages = append(stages, s); stageMu.Unlock() }})
+	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := responseText(resp); got != "first" {
+		t.Fatalf("got %q, want the first answer straight away", got)
+	}
+	var event Event
+	select {
+	case event = <-events:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no background event")
+	}
+	if !event.Background || event.Chosen != 1 || event.Paths[1] != "better" {
+		t.Fatalf("event = %+v", event)
+	}
+	a.cancelCheck()
+	stageMu.Lock()
+	if len(stages) == 0 || stages[len(stages)-1] != "" {
+		t.Fatalf("stages = %q, want a final clear", stages)
+	}
+	stageMu.Unlock()
+	req := testRequest()
+	req.Input = append(req.Input, llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: "first"}})
+	if got := a.applySwaps(req).Input[2].Data.(llm.Message).Text; got != "better" {
+		t.Fatalf("history sends %q, want the better path", got)
+	}
+}
+
+func TestNewTurnCancelsBackgroundCheck(t *testing.T) {
+	inner := &scriptedInner{texts: []string{"first", "slow", "next"}, delays: []time.Duration{0, time.Minute, 0}}
+	judge := &fakeJudge{batches: [][]float64{{0.2}, {0.99}}}
+	var traced atomic.Int32
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, NMin: 1, NMax: 1, Background: true,
+		MinBranchTime: time.Minute, Trace: func(e Event) {
+			if e.Branches > 0 {
+				traced.Add(1)
+			}
+		}})
+	if _, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	for inner.calls.Load() < 2 {
+		time.Sleep(time.Millisecond)
+	}
+	begin := time.Now()
+	if _, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(begin) > 5*time.Second {
+		t.Fatal("new turn waited for the background check")
+	}
+	a.cancelCheck()
+	if traced.Load() != 0 {
+		t.Fatal("cancelled check still reported")
 	}
 }
