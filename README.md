@@ -35,7 +35,8 @@ heu -resume <session-id>
 ```
 
 `heu` runs the same agent loop as `heuristic` with a human-readable
-transcript and slash commands (`/help`, `/session`, `/quit`). See
+transcript and slash commands (`/help`, `/session`, `/quit`); first run
+walks you through sign-in (`heu setup` to redo it). See
 [cmd/heu/README.md](cmd/heu/README.md).
 
 Environment:

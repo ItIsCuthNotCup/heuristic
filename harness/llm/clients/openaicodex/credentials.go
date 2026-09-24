@@ -6,11 +6,38 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
+
+// OAuth refresh, mirroring codex-rs login/src/auth/manager.rs.
+const oauthClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
+
+// refreshTokenURL is the ChatGPT OAuth token endpoint; a package var so
+// tests can point it at an httptest server.
+var refreshTokenURL = "https://auth.openai.com/oauth/token"
+
+// refreshSkew refreshes access tokens within this window of expiry.
+const refreshSkew = 5 * time.Minute
+
+// AuthFile mirrors the Codex CLI auth.json shape.
+type AuthFile = authFile
+
+// authFile mirrors the Codex CLI auth.json shape.
+type authFile struct {
+	Mode   string `json:"auth_mode"`
+	Tokens struct {
+		IDToken      string `json:"id_token"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		AccountID    string `json:"account_id"`
+	} `json:"tokens"`
+	LastRefresh string `json:"last_refresh"`
+}
 
 type credentials struct {
 	accessToken string
@@ -52,10 +79,16 @@ func (config Config) credentials() (credentials, error) {
 		if token != "" || accountID != "" {
 			return credentials{}, errors.New("codex AuthFile cannot be combined with AccessToken or AccountID")
 		}
-		var err error
-		token, accountID, err = readAuthFile(config.AuthFile)
+		auth, err := readAuthFile(config.AuthFile)
 		if err != nil {
 			return credentials{}, err
+		}
+		token, accountID = auth.Tokens.AccessToken, auth.Tokens.AccountID
+		if token != "" {
+			token, err = refreshIfNeeded(config.AuthFile, auth)
+			if err != nil {
+				return credentials{}, err
+			}
 		}
 	}
 	if token == "" {
@@ -69,7 +102,7 @@ func (config Config) credentials() (credentials, error) {
 		return credentials{}, err
 	}
 	if expires != 0 && time.Now().Unix() >= expires {
-		return credentials{}, errors.New("codex access token has expired; renew credentials externally (interactive login and token refresh are not implemented)")
+		return credentials{}, errors.New("codex access token has expired and the auth file has no refresh token; run `heu login`")
 	}
 	if accountID == "" {
 		accountID = claimAccount
@@ -82,38 +115,118 @@ func (config Config) credentials() (credentials, error) {
 	return credentials{accessToken: token, accountID: accountID}, nil
 }
 
-func readAuthFile(path string) (string, string, error) {
+// ReadAuthFile loads a Codex auth.json for inspection by callers such as
+// the interactive setup wizard.
+func ReadAuthFile(path string) (authFile, error) {
+	return readAuthFile(path)
+}
+
+func readAuthFile(path string) (authFile, error) {
+	var auth authFile
 	file, err := os.Open(path)
 	if err != nil {
-		return "", "", fmt.Errorf("open Codex auth file (provide existing ChatGPT credentials; login is not implemented): %w", err)
+		return auth, fmt.Errorf("open Codex auth file (run `heu login` to sign in): %w", err)
 	}
 	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
-		return "", "", fmt.Errorf("inspect Codex auth file: %w", err)
+		return auth, fmt.Errorf("inspect Codex auth file: %w", err)
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
-		return "", "", errors.New("codex auth file must be a regular file with private permissions (chmod 600)")
+		return auth, errors.New("codex auth file must be a regular file with private permissions (chmod 600)")
 	}
 	const limit = 1 << 20
 	data, err := io.ReadAll(io.LimitReader(file, limit+1))
 	if err != nil {
-		return "", "", fmt.Errorf("read Codex auth file: %w", err)
-	}
-	var auth struct {
-		Mode   string `json:"auth_mode"`
-		Tokens struct {
-			AccessToken string `json:"access_token"`
-			AccountID   string `json:"account_id"`
-		} `json:"tokens"`
+		return auth, fmt.Errorf("read Codex auth file: %w", err)
 	}
 	if len(data) > limit || json.Unmarshal(data, &auth) != nil {
-		return "", "", errors.New("invalid Codex auth file; expected a JSON object with tokens.access_token and tokens.account_id")
+		return auth, errors.New("invalid Codex auth file; expected a JSON object with tokens.access_token and tokens.account_id")
 	}
 	if auth.Mode != "" && auth.Mode != "chatgpt" {
-		return "", "", errors.New("codex auth file is not a ChatGPT subscription login")
+		return auth, errors.New("codex auth file is not a ChatGPT subscription login")
 	}
-	return strings.TrimSpace(auth.Tokens.AccessToken), strings.TrimSpace(auth.Tokens.AccountID), nil
+	return auth, nil
+}
+
+// WriteAuthFile persists a Codex auth.json atomically with 0600
+// permissions. Exported for the interactive login flow.
+func WriteAuthFile(path string, auth authFile) error {
+	data, err := json.Marshal(auth)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".codex-auth-*")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.Write(data); err == nil {
+		err = tmp.Chmod(0o600)
+	}
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return nil
+}
+
+// refreshIfNeeded exchanges the stored refresh token for a new access token
+// when the current one expires within refreshSkew, rewriting the auth file.
+func refreshIfNeeded(path string, auth authFile) (string, error) {
+	token := strings.TrimSpace(auth.Tokens.AccessToken)
+	_, expires, err := tokenClaims(token)
+	if err != nil || expires == 0 || time.Now().Unix() < expires-int64(refreshSkew/time.Second) {
+		return token, err
+	}
+	refresh := strings.TrimSpace(auth.Tokens.RefreshToken)
+	if refresh == "" {
+		return token, nil // expired-without-refresh is reported by the caller
+	}
+	form := url.Values{
+		"client_id":     {oauthClientID},
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refresh},
+	}
+	resp, err := http.PostForm(refreshTokenURL, form)
+	if err != nil {
+		return "", fmt.Errorf("refresh codex token: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", fmt.Errorf("read refresh response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("refresh codex token: status %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	var refreshed struct {
+		IDToken      string `json:"id_token"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if json.Unmarshal(body, &refreshed) != nil || refreshed.AccessToken == "" {
+		return "", errors.New("refresh codex token: invalid token response")
+	}
+	auth.Tokens.AccessToken = refreshed.AccessToken
+	if refreshed.IDToken != "" {
+		auth.Tokens.IDToken = refreshed.IDToken
+	}
+	if refreshed.RefreshToken != "" {
+		auth.Tokens.RefreshToken = refreshed.RefreshToken
+	}
+	auth.LastRefresh = time.Now().UTC().Format(time.RFC3339)
+	if err := WriteAuthFile(path, auth); err != nil {
+		return "", fmt.Errorf("store refreshed codex token: %w", err)
+	}
+	return refreshed.AccessToken, nil
 }
 
 // Unverified claims are routing/expiry hints; the server authenticates the token.

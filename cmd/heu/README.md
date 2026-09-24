@@ -11,23 +11,31 @@ Install with Go 1.27+:
 go install github.com/ItIsCuthNotCup/heuristic/cmd/heu@latest
 ```
 
-Configure the model via environment or a `.env` file in the workspace:
+Configure the model by just running `heu`: on first run with no provider
+configured it walks you through sign-in — OpenAI API key, ChatGPT/Codex
+subscription (OAuth, browser or paste-the-redirect-URL for headless/SSH),
+OpenRouter, Fireworks, Ollama, or any OpenAI-compatible endpoint — then the
+MetaCog judge. Re-run it any time with `heu setup` (or `heu login`).
 
-```sh
-export OPENAI_API_KEY="..."                    # for the default openai provider
-# or explicitly:
-export HEURISTIC_LLM_PROVIDER=openai           # openai | openai-codex | openrouter | fireworks | ollama
-export HEURISTIC_LLM_MODEL=gpt-6-astra
-export HEURISTIC_LLM_API_KEY="..."             # generic key; provider-specific keys also work
-export TYPESAFE_API_KEY="..."                  # optional: enables the Jev judge (metacog)
-```
+Settings are saved to `~/.config/heuristic/config.env` (respects
+`XDG_CONFIG_HOME`). Precedence: process environment > `<workspace>/.env` >
+the user config file. Codex OAuth credentials live in
+`~/.config/heuristic/codex-auth.json`; an existing `~/.codex/auth.json`
+login is detected and offered instead.
 
-`UNREAL_HARNESS_*` names are accepted as fallbacks for all `HEURISTIC_*` vars.
+Advanced/manual path: set the variables yourself in the environment or a
+workspace `.env` file — `HEURISTIC_LLM_PROVIDER` (`openai` |
+`openai-codex` | `openrouter` | `fireworks` | `ollama`),
+`HEURISTIC_LLM_MODEL`, `HEURISTIC_LLM_API_KEY`, `HEURISTIC_LLM_BASE_URL`,
+`OPENAI_CODEX_AUTH_FILE`, `TYPESAFE_API_KEY` (Jev judge).
+`UNREAL_HARNESS_*` names are accepted as fallbacks for all `HEURISTIC_*`
+vars.
 
 ## Usage
 
 ```sh
-heu                              # banner + prompt, waits for input
+heu                              # banner + prompt (runs setup on first use)
+heu setup                        # re-run the sign-in/provider wizard
 heu "fix the failing test"       # initial request, then keeps running
 heu -p "summarize this repo"     # one-shot: run and exit
 heu -resume <session-id>         # resume a previous session

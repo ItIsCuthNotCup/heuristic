@@ -104,6 +104,16 @@ type environmentChange struct {
 
 type environmentScope struct {
 	changes []environmentChange
+	names   map[string]bool
+}
+
+// setNames reports which variables this scope assigned.
+func (scope *environmentScope) setNames() map[string]bool {
+	names := make(map[string]bool, len(scope.names))
+	for name := range scope.names {
+		names[name] = true
+	}
+	return names
 }
 
 type errorEvent struct {
@@ -206,6 +216,12 @@ func Run(
 	if flags.NArg() > 1 && !config.Interactive {
 		return errors.New("expected at most one positional JSON request")
 	}
+	if config.Interactive && flags.NArg() == 1 && (flags.Arg(0) == "setup" || flags.Arg(0) == "login") {
+		if !isTerminalIO(input, output) {
+			return errors.New("heu setup requires a terminal")
+		}
+		return runSetupWizard(ctx, input, output, getenv)
+	}
 	if prompt != nil && flags.NArg() != 0 {
 		return errors.New("-p cannot be combined with a positional JSON request")
 	}
@@ -274,7 +290,26 @@ func Run(
 	if !workspaceInfo.IsDir() {
 		return fmt.Errorf("workspace %q is not a directory", workspace)
 	}
-	environment, err := loadDotEnv(filepath.Join(workspace, ".env"))
+	// Precedence: process env > workspace .env > user config (~/.config).
+	// The user config loads first; the workspace .env may override names it
+	// set this run but never real process-env vars.
+	var userConfig *environmentScope
+	if config.Interactive {
+		userConfig, err = loadDotEnv(userConfigPath(getenv))
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if err := userConfig.Close(); err != nil {
+				runErr = errors.Join(runErr, err)
+			}
+		}()
+	}
+	var overridable map[string]bool
+	if userConfig != nil {
+		overridable = userConfig.setNames()
+	}
+	environment, err := loadDotEnvInto(filepath.Join(workspace, ".env"), overridable)
 	if err != nil {
 		return err
 	}
@@ -287,46 +322,82 @@ func Run(
 	if err != nil {
 		return err
 	}
-	providerName := strings.TrimSpace(lookupEnv(getenv, llmProviderEnvironment))
-	if providerName == "" {
-		providerName = defaultProvider
+	resolveProvider := func() (Provider, string, string, Client, error) {
+		providerName := strings.TrimSpace(lookupEnv(getenv, llmProviderEnvironment))
+		if providerName == "" {
+			providerName = defaultProvider
+		}
+		selected, err := selectProvider(config.Providers, providerName)
+		if err != nil {
+			return Provider{}, "", "", nil, err
+		}
+		configuredBaseURL := strings.TrimSpace(lookupEnv(getenv, llmBaseURLEnvironment))
+		if configuredBaseURL == "" {
+			configuredBaseURL = selected.BaseURL
+		}
+
+		model := strings.TrimSpace(parsed.Model)
+		if model == "" {
+			model = strings.TrimSpace(lookupEnv(getenv, llmModelEnvironment))
+		}
+		if model == "" {
+			model = selected.DefaultModel
+		}
+		if model == "" {
+			return Provider{}, "", "", nil, fmt.Errorf("model must be set in the request or %s", llmModelEnvironment)
+		}
+		var apiKey string
+		if selected.APIKeyEnvironment != "" {
+			apiKey = lookupEnv(getenv, llmAPIKeyEnvironment)
+			if strings.TrimSpace(apiKey) == "" {
+				apiKey = lookupEnv(getenv, selected.APIKeyEnvironment)
+			}
+			if strings.TrimSpace(apiKey) == "" {
+				return Provider{}, "", "", nil, fmt.Errorf(
+					"%s or %s must be set",
+					llmAPIKeyEnvironment,
+					selected.APIKeyEnvironment,
+				)
+			}
+		}
+		client, err := selected.NewClient(apiKey, configuredBaseURL, maxAttempts, getenv)
+		if err != nil {
+			return Provider{}, "", "", nil, fmt.Errorf("create %s client: %w", selected.Name, err)
+		}
+		return selected, configuredBaseURL, model, client, nil
 	}
-	selected, err := selectProvider(config.Providers, providerName)
+	selected, _, model, client, err := resolveProvider()
+	if err != nil && config.Interactive {
+		// Missing credentials on a real terminal: onboard first.
+		if !isTerminalIO(input, output) {
+			return fmt.Errorf("%w (run `heu setup` in a terminal to configure)", err)
+		}
+		if setupErr := runSetupWizard(ctx, input, output, getenv); setupErr != nil {
+			return errors.Join(err, fmt.Errorf("setup wizard: %w", setupErr))
+		}
+		// Reload the user config so the wizard's values apply; it may
+		// override names the earlier user-config load already set.
+		var reloadOverridable map[string]bool
+		if userConfig != nil {
+			reloadOverridable = userConfig.setNames()
+		}
+		reloaded, loadErr := loadDotEnvInto(userConfigPath(getenv), reloadOverridable)
+		if loadErr != nil {
+			return loadErr
+		}
+		if userConfig != nil {
+			_ = userConfig.Close()
+		}
+		userConfig = reloaded
+		defer func() {
+			if err := userConfig.Close(); err != nil {
+				runErr = errors.Join(runErr, err)
+			}
+		}()
+		selected, _, model, client, err = resolveProvider()
+	}
 	if err != nil {
 		return err
-	}
-	configuredBaseURL := strings.TrimSpace(lookupEnv(getenv, llmBaseURLEnvironment))
-	if configuredBaseURL == "" {
-		configuredBaseURL = selected.BaseURL
-	}
-
-	model := strings.TrimSpace(parsed.Model)
-	if model == "" {
-		model = strings.TrimSpace(lookupEnv(getenv, llmModelEnvironment))
-	}
-	if model == "" {
-		model = selected.DefaultModel
-	}
-	if model == "" {
-		return fmt.Errorf("model must be set in the request or %s", llmModelEnvironment)
-	}
-	var apiKey string
-	if selected.APIKeyEnvironment != "" {
-		apiKey = lookupEnv(getenv, llmAPIKeyEnvironment)
-		if strings.TrimSpace(apiKey) == "" {
-			apiKey = lookupEnv(getenv, selected.APIKeyEnvironment)
-		}
-		if strings.TrimSpace(apiKey) == "" {
-			return fmt.Errorf(
-				"%s or %s must be set",
-				llmAPIKeyEnvironment,
-				selected.APIKeyEnvironment,
-			)
-		}
-	}
-	client, err := selected.NewClient(apiKey, configuredBaseURL, maxAttempts, getenv)
-	if err != nil {
-		return fmt.Errorf("create %s client: %w", selected.Name, err)
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
@@ -677,10 +748,17 @@ func openDatetimeLog(directory string, now time.Time) (*os.File, error) {
 }
 
 func loadDotEnv(path string) (*environmentScope, error) {
+	return loadDotEnvInto(path, nil)
+}
+
+// loadDotEnvInto is loadDotEnv with an extra rule: names in overridable
+// (set by an earlier scope in this run, e.g. the user config) may be
+// reassigned even though they are present in the process environment.
+func loadDotEnvInto(path string, overridable map[string]bool) (*environmentScope, error) {
 	encoded, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return &environmentScope{}, nil
+			return &environmentScope{names: map[string]bool{}}, nil
 		}
 		return nil, fmt.Errorf("read environment file: %w", err)
 	}
@@ -700,10 +778,10 @@ func loadDotEnv(path string) (*environmentScope, error) {
 		}
 		values[name] = strings.TrimSpace(value)
 	}
-	scope := &environmentScope{}
+	scope := &environmentScope{names: map[string]bool{}}
 	for name, value := range values {
 		_, present := os.LookupEnv(name)
-		if present && name != "SANDBOX_EGRESS_PROXY" {
+		if present && name != "SANDBOX_EGRESS_PROXY" && !overridable[name] {
 			continue
 		}
 		if err := scope.set(name, value); err != nil {
@@ -726,6 +804,10 @@ func (scope *environmentScope) set(name, value string) error {
 	scope.changes = append(scope.changes, environmentChange{
 		name: name, value: previous, present: present,
 	})
+	if scope.names == nil {
+		scope.names = map[string]bool{}
+	}
+	scope.names[name] = true
 	return nil
 }
 
