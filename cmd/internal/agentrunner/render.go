@@ -167,6 +167,13 @@ func (r *renderer) Event(event metacog.Event) {
 		)))
 		return
 	}
+	if agree := countTrue(event.Agree); agree > 0 {
+		r.printf("%s\n", r.dim(fmt.Sprintf(
+			"◆ metacog: %d of %d thought paths agree → picked #%d, %d judge calls, %.1fs",
+			agree, len(event.Paths), event.Chosen, event.JudgeCalls, float64(event.DurationMs)/1000,
+		)))
+		return
+	}
 	score := 0.0
 	if event.Chosen < len(event.Scores) {
 		score = event.Scores[event.Chosen]

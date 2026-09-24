@@ -31,6 +31,16 @@ type Config struct {
 	BranchTimeFactor float64       // default 1.5
 	MinBranchTime    time.Duration // default 20s
 	JudgeTimeout     time.Duration // per judging step, default 30s
+	// Vote runs this many extra thought paths at once after a final
+	// answer and stops as soon as two paths agree; the judge only picks
+	// when none do. Default 3; < 0 uses the v0.3 judge-first loop.
+	Vote int
+	// TrustConfidence skips the vote when the judge scores the first
+	// answer at least this high. Default 0.98.
+	TrustConfidence float64
+	// SameThreshold is the SameJudge score from which two paths without a
+	// stated final answer count as agreeing. Default 0.7.
+	SameThreshold float64
 }
 
 func (c Config) withDefaults() Config {
@@ -55,6 +65,15 @@ func (c Config) withDefaults() Config {
 	if c.JudgeTimeout <= 0 {
 		c.JudgeTimeout = 30 * time.Second
 	}
+	if c.Vote == 0 {
+		c.Vote = 3
+	}
+	if c.TrustConfidence <= 0 {
+		c.TrustConfidence = 0.98
+	}
+	if c.SameThreshold <= 0 {
+		c.SameThreshold = 0.7
+	}
 	return c
 }
 
@@ -77,6 +96,9 @@ type Event struct {
 	// Final reports that every path is a final answer (no tool calls), so
 	// the conversation can continue from any of them.
 	Final bool `json:"-"`
+	// Agree marks, per path, the paths that reached the chosen answer when
+	// a vote decided; Scores is empty then.
+	Agree []bool `json:"agree,omitempty"`
 	// Background reports that the first answer was already returned and
 	// this event is the later check of it.
 	Background bool `json:"background,omitempty"`
@@ -205,6 +227,9 @@ func (a *Adapter) think(ctx context.Context, req llm.Request, opts llm.RequestOp
 	defer a.setStage("")
 
 	problem := BuildProblem(req, a.cfg.MaxProblemChars)
+	if a.cfg.Vote > 0 && isFinalResponse(greedy) {
+		return a.vote(ctx, req, opts, greedy, problem, greedyTime, &event, &judgeCalls, emit, background)
+	}
 	pool := []llm.Response{greedy}
 
 	a.setStage("checking the answer")
@@ -250,17 +275,26 @@ func (a *Adapter) think(ctx context.Context, req llm.Request, opts llm.RequestOp
 		return greedy
 	}
 
+	chosen := a.judgePool(ctx, problem, pool, &event, &judgeCalls, background)
+	emit()
+	selected := pool[max(chosen, 0)]
+	selected.Usage = usage
+	return selected
+}
+
+// judgePool scores every path (text plus the answer prior), records the
+// scores in event and returns the best path, or -1 when the judge fails. In
+// background mode a better path is applied with UsePath.
+func (a *Adapter) judgePool(ctx context.Context, problem string, pool []llm.Response, event *Event, judgeCalls *int, background bool) int {
 	a.setStage(fmt.Sprintf("judging %d thought paths", len(pool)))
 	texts := make([]string, len(pool))
 	for i := range pool {
 		texts[i] = responseText(pool[i])
 	}
 	textScores, err := a.judgeWithin(ctx, problem, texts, nil)
-	judgeCalls += len(texts)
+	*judgeCalls += len(texts)
 	if err != nil || len(textScores) != len(pool) {
-		emit()
-		greedy.Usage = usage
-		return greedy
+		return -1
 	}
 	event.Scores = textScores
 	event.Paths = texts
@@ -271,7 +305,7 @@ func (a *Adapter) think(ctx context.Context, req llm.Request, opts llm.RequestOp
 
 	totals := textScores
 	if a.cfg.AnswerPrior > 0 {
-		prior := a.answerPriors(ctx, problem, texts, &judgeCalls)
+		prior := a.answerPriors(ctx, problem, texts, judgeCalls)
 		if prior != nil {
 			totals = make([]float64, len(pool))
 			priorPerPool := make([]float64, len(pool))
@@ -290,15 +324,15 @@ func (a *Adapter) think(ctx context.Context, req llm.Request, opts llm.RequestOp
 
 	chosen := argmax(totals)
 	event.Chosen = chosen
-	if background && ctx.Err() == nil && chosen != 0 && event.Final {
+	a.applyChoice(ctx, texts, chosen, event, background)
+	return chosen
+}
+
+func (a *Adapter) applyChoice(ctx context.Context, texts []string, chosen int, event *Event, background bool) {
+	if background && ctx.Err() == nil && chosen > 0 && event.Final {
 		a.UsePath(texts[0], texts[chosen])
 		event.switched = true
 	}
-	emit()
-
-	selected := pool[chosen]
-	selected.Usage = usage
-	return selected
 }
 
 // judgeWithin scores candidates, giving up after JudgeTimeout. instructions
