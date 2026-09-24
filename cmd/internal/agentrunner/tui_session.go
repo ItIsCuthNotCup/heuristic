@@ -70,6 +70,8 @@ type tuiLoop struct {
 	lastCtrlC time.Time
 	// swaps are thought-path switches, reapplied to every new session.
 	swaps map[string]string
+	// deferred restarts the session once the current turn finishes.
+	deferred *nextSession
 }
 
 func runTUI(ctx context.Context, spec sessionSpec) error {
@@ -201,6 +203,11 @@ func (m *tuiLoop) drive(ctx context.Context, start nextSession) (nextSession, er
 			if pending != nil {
 				return *pending, nil
 			}
+			if m.deferred != nil {
+				next := *m.deferred
+				m.deferred = nil
+				return next, nil
+			}
 			if err != nil && ctx.Err() == nil && isAuthError(err) {
 				t.c.Print(p.red("✗ ") + friendlyError(err) + "\n" + p.dim("  Let's sign in again.") + "\n")
 				return nextSession{sessionID: currentID, after: m.login}, nil
@@ -212,6 +219,13 @@ func (m *tuiLoop) drive(ctx context.Context, start nextSession) (nextSession, er
 			cancel()
 		case <-ticker.C:
 			t.tick()
+			if m.deferred != nil && pending == nil && !t.isWorking() {
+				next := *m.deferred
+				m.deferred = nil
+				if next, finished := stopThen(next); finished {
+					return next, nil
+				}
+			}
 		case event, ok := <-t.c.keys:
 			if !ok {
 				event = keyEvent{kind: keyCtrlD}
@@ -415,12 +429,15 @@ func (m *tuiLoop) command(
 		}
 		return stopThen(nextSession{sessionID: currentID, after: m.logout})
 	case "/metacog":
-		if needsIdle() {
+		next := nextSession{sessionID: currentID, after: func(ctx context.Context, next *nextSession) {
+			m.setMetaCog(ctx, arg)
+		}}
+		if busy {
+			m.deferred = &next
+			t.c.Print(p.dim("  ⎿ MetaCog will switch when this answer finishes · Esc to switch now") + "\n")
 			break
 		}
-		return stopThen(nextSession{sessionID: currentID, after: func(ctx context.Context, next *nextSession) {
-			m.setMetaCog(ctx, arg)
-		}})
+		return stopThen(next)
 	case "/paths":
 		if needsIdle() {
 			break
