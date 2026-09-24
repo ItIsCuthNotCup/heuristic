@@ -24,6 +24,20 @@ export TYPESAFE_API_KEY="..."     # the Jev judge (omit for judge=off)
 heuristic -p 'Solve this task.'
 ```
 
+## Interactive: `heu`
+
+```sh
+go install github.com/ItIsCuthNotCup/heuristic/cmd/heu@latest
+heu                     # banner + prompt
+heu "fix the failing test"
+heu -p "summarize this repo"     # one-shot
+heu -resume <session-id>
+```
+
+`heu` runs the same agent loop as `heuristic` with a human-readable
+transcript and slash commands (`/help`, `/session`, `/quit`). See
+[cmd/heu/README.md](cmd/heu/README.md).
+
 Environment:
 
 | Variable | Default | Purpose |

@@ -12,7 +12,7 @@ import (
 )
 
 func TestParseRequestConfiguresStaticTools(t *testing.T) {
-	parsed, factory, err := parseRequest(strings.NewReader(`{"prompt":"hello","disallowed_tools":["Bash","SkillUse"]}`))
+	parsed, factory, err := agentrunner.DefaultParseRequest(strings.NewReader(`{"prompt":"hello","disallowed_tools":["Bash","SkillUse"]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestRunnerRejectsUnsupportedRequests(t *testing.T) {
 			t.Fatal("unsupported request reached environment setup")
 			return ""
 		}, func() []string { return nil }, strings.NewReader(input), io.Discard, &stderr,
-			agentrunner.Config{Name: "heuristic", ParseRequest: parseRequest})
+			agentrunner.Config{Name: "heuristic", ParseRequest: agentrunner.DefaultParseRequest})
 		if code != 1 || !strings.Contains(stderr.String(), "unknown object member") {
 			t.Fatalf("request = %s, exit = %d, stderr = %s", input, code, stderr.String())
 		}

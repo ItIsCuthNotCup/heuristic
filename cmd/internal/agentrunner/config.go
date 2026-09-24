@@ -14,6 +14,10 @@ type Config struct {
 	Name         string
 	Providers    []Provider
 	ParseRequest func(io.Reader) (Request, ToolFactory, error)
+	// Interactive renders a human-readable transcript instead of session
+	// JSONL, joins positional args into a plain-text prompt, and keeps
+	// reading requests from stdin instead of stopping when idle (unless -p).
+	Interactive bool
 }
 
 type ToolConfig struct {
