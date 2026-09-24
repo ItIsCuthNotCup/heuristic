@@ -350,3 +350,54 @@ func TestExtractAnswer(t *testing.T) {
 		}
 	}
 }
+
+// recordingInner records every request it is sent.
+type recordingInner struct {
+	fakeInner
+	requests []llm.Request
+}
+
+func (r *recordingInner) Respond(ctx context.Context, req llm.Request, opts llm.RequestOptions) (llm.Response, error) {
+	r.requests = append(r.requests, req)
+	return r.fakeInner.Respond(ctx, req, opts)
+}
+
+func TestEventCarriesPathTexts(t *testing.T) {
+	inner := &fakeInner{responses: []llm.Response{messageResponse("r0", "first"), messageResponse("b", "second")}}
+	judge := &fakeJudge{batches: [][]float64{{0.9}, {0.4, 0.8}}}
+	var events []Event
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, NMin: 1, NMax: 1, Trace: func(e Event) { events = append(events, e) }})
+	if _, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || !events[0].Final || strings.Join(events[0].Paths, ",") != "first,second" {
+		t.Fatalf("event = %+v", events)
+	}
+	if judge.calls.Load() != 2 || inner.calls.Load() != 2 {
+		t.Fatalf("judge calls = %d, inner calls = %d", judge.calls.Load(), inner.calls.Load())
+	}
+}
+
+func TestUsePathRewritesHistory(t *testing.T) {
+	inner := &recordingInner{fakeInner: fakeInner{responses: []llm.Response{messageResponse("r", "ok")}}}
+	a := New(inner, Config{Mode: ModeOff})
+	a.UsePath("picked answer", "other answer")
+	req := testRequest()
+	req.Input = append(req.Input,
+		llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: "picked answer"}},
+		llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleUser, Text: "picked answer"}},
+	)
+	if _, err := a.Respond(context.Background(), req, llm.RequestOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	sent := inner.requests[0].Input
+	if got := sent[2].Data.(llm.Message).Text; got != "other answer" {
+		t.Fatalf("assistant message = %q", got)
+	}
+	if got := sent[3].Data.(llm.Message).Text; got != "picked answer" {
+		t.Fatalf("user message rewritten to %q", got)
+	}
+	if req.Input[2].Data.(llm.Message).Text != "picked answer" {
+		t.Fatal("caller's request was mutated")
+	}
+}

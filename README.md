@@ -65,6 +65,49 @@ single-answer benchmarks): 81.7% → 86.7%, +11/−2, p=0.02 on 180 paired
 GPQA/AIME rows; agentic benchmarks not yet measured. See that repo for the
 method and evidence.
 
+## Thought paths
+
+Heuristic only thinks harder when it is unsure. Each answer turn works like
+this:
+
+1. **Answer once.** The model replies as normal.
+2. **Check confidence.** The judge scores that answer from 0 to 1 (how likely
+   it is to be right). At 0.95 or above it is kept as is: one answer, no
+   extra cost.
+3. **Branch by uncertainty.** Otherwise the agent writes
+   `round(2 + (1 − score) × 4)` more answers in parallel, i.e. 2 paths when
+   it is nearly sure and up to 6 when it is lost. Together with the first
+   answer these are the *thought paths*.
+4. **Score every path.** The judge scores each full path, and separately each
+   path's bare final answer (the answer prior).
+5. **Pick the best.** The winner has the highest
+   `path score + 0.5 × bare-answer score`.
+
+Only turns that end with an answer are judged; turns that call tools pass
+straight through, so a normal agent loop costs the same as without MetaCog.
+
+When MetaCog branches, `heu` lists every path under its note:
+
+```
+◆ MetaCog unsure (0.38) → tried 3 more thought paths → picked #2 (0.81) · 8 judge calls · 6.1s
+  Thought Path 1  0.38  Cache the parsed config in a package variable.
+❯ Thought Path 2  0.81  Parse the config once in main and pass it down.
+  Thought Path 3  0.44  Use sync.Once around the parser.
+  Thought Path 4  0.52  Re-read the file only when its mtime changes.
+  ctrl+t to open a path or continue from a different one
+```
+
+Each summary is the first line of that path's own text and the number is its
+judge score, so the list costs no extra model or judge calls. `❯` marks the
+path the conversation is using.
+
+Press **Ctrl+T** (or type `/paths`) to open the list. Pick a path with ↑↓
+and Enter to read it in full. On a path that isn't in use, choose
+**Continue from this path**: your next message is answered as if the agent
+had given that answer, because for the rest of this `heu` run it is sent to
+the model in place of the judge's pick. The saved session log keeps what was
+actually shown.
+
 ## Harness (from Unreal Agent)
 
 - [harness/](harness/) — the library.

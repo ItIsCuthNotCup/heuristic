@@ -51,6 +51,12 @@ type Event struct {
 	JudgeCalls  int       `json:"judge_calls"`
 	Stopped     bool      `json:"stopped"`
 	DurationMs  int64     `json:"duration_ms"`
+	// Paths holds the text of every thought path in pool order (the first
+	// answer, then the branches), aligned with Scores.
+	Paths []string `json:"-"`
+	// Final reports that every path is a final answer (no tool calls), so
+	// the conversation can continue from any of them.
+	Final bool `json:"-"`
 }
 
 // Adapter wraps an inner llm.Adapter with the MetaCog adaptive loop: score
@@ -59,6 +65,9 @@ type Event struct {
 type Adapter struct {
 	inner llm.Adapter
 	cfg   Config
+
+	mu    sync.Mutex
+	swaps map[string]string
 }
 
 func New(inner llm.Adapter, cfg Config) *Adapter {
@@ -67,7 +76,40 @@ func New(inner llm.Adapter, cfg Config) *Adapter {
 
 var _ llm.Adapter = (*Adapter)(nil)
 
+// UsePath makes later turns continue from replacement instead of the answer
+// MetaCog picked: every assistant message whose text is original is sent to
+// the model as replacement.
+func (a *Adapter) UsePath(original, replacement string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.swaps == nil {
+		a.swaps = map[string]string{}
+	}
+	a.swaps[original] = replacement
+}
+
+func (a *Adapter) applySwaps(req llm.Request) llm.Request {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.swaps) == 0 {
+		return req
+	}
+	input := make([]llm.Item, len(req.Input))
+	for i, item := range req.Input {
+		if msg, ok := item.Data.(llm.Message); ok && msg.Role == llm.RoleAssistant {
+			if replacement, ok := a.swaps[msg.Text]; ok {
+				msg.Text = replacement
+				item.Data = msg
+			}
+		}
+		input[i] = item
+	}
+	req.Input = input
+	return req
+}
+
 func (a *Adapter) Respond(ctx context.Context, req llm.Request, opts llm.RequestOptions) (llm.Response, error) {
+	req = a.applySwaps(req)
 	start := time.Now()
 	event := Event{Turn: opts.CacheKey, Chosen: 0}
 	judgeCalls := 0
@@ -147,6 +189,11 @@ func (a *Adapter) Respond(ctx context.Context, req llm.Request, opts llm.Request
 		return greedy, nil
 	}
 	event.Scores = textScores
+	event.Paths = texts
+	event.Final = true
+	for _, resp := range pool {
+		event.Final = event.Final && isFinalResponse(resp)
+	}
 
 	totals := textScores
 	if a.cfg.AnswerPrior > 0 {
