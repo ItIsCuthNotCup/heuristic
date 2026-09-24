@@ -433,16 +433,9 @@ func (m *tuiLoop) currentConnection() connection {
 	}
 	baseURL := strings.TrimRight(strings.TrimSpace(lookupEnv(getenv, llmBaseURLEnvironment)), "/")
 	conn := connection{baseURL: baseURL, apiKey: lookupEnv(getenv, llmAPIKeyEnvironment)}
-	for _, spec := range providerCatalog() {
-		if spec.provider != provider || spec.id == "custom" {
-			continue
-		}
-		if spec.baseURL == baseURL || (spec.baseURL == "" && (baseURL == "" || spec.id == "openai" && strings.Contains(baseURL, "api.openai.com"))) {
-			conn.spec = spec
-			break
-		}
-	}
-	if conn.spec.id == "" {
+	if spec, ok := matchProvider(providerCatalog(), provider, baseURL); ok {
+		conn.spec = spec
+	} else {
 		conn.spec = providerSpec{id: "custom", provider: provider, label: providerDisplayName(provider, baseURL)}
 	}
 	for _, p := range m.spec.config.Providers {
