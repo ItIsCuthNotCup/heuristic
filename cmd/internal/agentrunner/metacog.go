@@ -131,7 +131,7 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 	case vote != "":
 		cfg.Vote, err = strconv.Atoi(vote)
 		if err != nil || cfg.Vote < 1 {
-			return cfg, "", fmt.Errorf("metacog vote must be a positive integer or off, got %q", vote)
+			return cfg, "", fmt.Errorf("HEURISTIC_VOTE must be a positive number or off, got %q", vote)
 		}
 	}
 	cfg.AnswerPrior = 0.5 // the MetaCog v0.3 default
