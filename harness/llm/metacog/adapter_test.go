@@ -102,7 +102,7 @@ func TestModeOffPassThrough(t *testing.T) {
 func TestModeFinalSkipsToolCallTurns(t *testing.T) {
 	inner := &fakeInner{responses: []llm.Response{toolCallResponse("r0")}}
 	judge := &fakeJudge{}
-	a := New(inner, Config{Judge: judge, Mode: ModeFinal})
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, Vote: -1})
 	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestStopAtConfidence(t *testing.T) {
 	inner := &fakeInner{responses: []llm.Response{messageResponse("r0", "answer")}}
 	judge := &fakeJudge{batches: [][]float64{{0.97}}}
 	var events []Event
-	a := New(inner, Config{Judge: judge, Mode: ModeFinal, Trace: func(e Event) { events = append(events, e) }})
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, Vote: -1, Trace: func(e Event) { events = append(events, e) }})
 	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +159,7 @@ func TestBranchingScalesWithUncertainty(t *testing.T) {
 			pool[len(pool)-1] = 0.9 // last branch wins
 			judge := &fakeJudge{batches: [][]float64{{tc.s0}, pool, {0.5, 0.5}}}
 			var events []Event
-			a := New(inner, Config{Judge: judge, Mode: ModeFinal, AnswerPrior: 0.5, Trace: func(e Event) { events = append(events, e) }})
+			a := New(inner, Config{Judge: judge, Mode: ModeFinal, Vote: -1, AnswerPrior: 0.5, Trace: func(e Event) { events = append(events, e) }})
 			resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
 			if err != nil {
 				t.Fatal(err)
@@ -195,7 +195,7 @@ func TestAnswerPriorChangesWinner(t *testing.T) {
 		{0.75, 0.75, 0.75},
 		{0.45, 0.62},
 	}}
-	a := New(inner, Config{Judge: judge, Mode: ModeFinal, AnswerPrior: 0.5, NMin: 2, NMax: 2})
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, Vote: -1, AnswerPrior: 0.5, NMin: 2, NMax: 2})
 	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -220,7 +220,7 @@ func TestBranchFailuresIgnored(t *testing.T) {
 	}
 	pool := []float64{0.4, 0.8}
 	judge := &fakeJudge{batches: [][]float64{{0.5}, pool, {0.5}}}
-	a := New(inner, Config{Judge: judge, Mode: ModeFinal, AnswerPrior: 0.5, NMin: 4, NMax: 4})
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, Vote: -1, AnswerPrior: 0.5, NMin: 4, NMax: 4})
 	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -237,7 +237,7 @@ func TestAllBranchesFailReturnsGreedy(t *testing.T) {
 		errs:      []error{nil, errBoom, errBoom},
 	}
 	judge := &fakeJudge{batches: [][]float64{{0.5}}}
-	a := New(inner, Config{Judge: judge, Mode: ModeFinal, NMin: 2, NMax: 2})
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, Vote: -1, NMin: 2, NMax: 2})
 	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -257,7 +257,7 @@ func TestUsageSummed(t *testing.T) {
 	branch.Usage = llm.Usage{InputTokens: 20, OutputTokens: 7, ReasoningTokens: 3}
 	inner := &fakeInner{responses: []llm.Response{greedy, branch}}
 	judge := &fakeJudge{batches: [][]float64{{0.5}, {0.9, 0.1}}}
-	a := New(inner, Config{Judge: judge, Mode: ModeFinal, AnswerPrior: 0, NMin: 1, NMax: 1})
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, Vote: -1, AnswerPrior: 0, NMin: 1, NMax: 1})
 	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -279,7 +279,7 @@ func TestUsageSummedWhenPoolCollapses(t *testing.T) {
 	b1.Usage = llm.Usage{InputTokens: 20, OutputTokens: 8}
 	inner := &fakeInner{responses: []llm.Response{greedy, b1}}
 	judge := &fakeJudge{batches: [][]float64{{0.5}}}
-	a := New(inner, Config{Judge: judge, Mode: ModeFinal, NMin: 1, NMax: 1})
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, Vote: -1, NMin: 1, NMax: 1})
 	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -307,7 +307,7 @@ func TestUsageSummedOnJudgeError(t *testing.T) {
 	b1 := messageResponse("b1", "alt")
 	b1.Usage = llm.Usage{InputTokens: 20, OutputTokens: 8}
 	inner := &fakeInner{responses: []llm.Response{greedy, b1}}
-	a := New(inner, Config{Judge: &errJudge{}, Mode: ModeFinal, NMin: 1, NMax: 1})
+	a := New(inner, Config{Judge: &errJudge{}, Mode: ModeFinal, Vote: -1, NMin: 1, NMax: 1})
 	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -326,7 +326,7 @@ func TestModeAllJudgesToolCallTurns(t *testing.T) {
 		messageResponse("b1", "final"),
 	}}
 	judge := &fakeJudge{batches: [][]float64{{0.5}, {0.2, 0.9}}}
-	a := New(inner, Config{Judge: judge, Mode: ModeAll, AnswerPrior: 0, NMin: 1, NMax: 1})
+	a := New(inner, Config{Judge: judge, Mode: ModeAll, Vote: -1, AnswerPrior: 0, NMin: 1, NMax: 1})
 	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -369,7 +369,7 @@ func TestEventCarriesPathTexts(t *testing.T) {
 	inner := &fakeInner{responses: []llm.Response{messageResponse("r0", "first"), messageResponse("b", "second")}}
 	judge := &fakeJudge{batches: [][]float64{{0.9}, {0.4, 0.8}}}
 	var events []Event
-	a := New(inner, Config{Judge: judge, Mode: ModeFinal, NMin: 1, NMax: 1, Trace: func(e Event) { events = append(events, e) }})
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, Vote: -1, NMin: 1, NMax: 1, Trace: func(e Event) { events = append(events, e) }})
 	if _, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +427,7 @@ func (s *scriptedInner) Respond(ctx context.Context, req llm.Request, opts llm.R
 func TestSlowBranchesAreDropped(t *testing.T) {
 	inner := &scriptedInner{texts: []string{"first", "fast", "slow"}, delays: []time.Duration{0, 0, time.Minute}}
 	judge := &fakeJudge{batches: [][]float64{{0.1}, {0.2, 0.9}}}
-	a := New(inner, Config{Judge: judge, Mode: ModeFinal, NMin: 2, NMax: 2, MinBranchTime: 50 * time.Millisecond})
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, Vote: -1, NMin: 2, NMax: 2, MinBranchTime: 50 * time.Millisecond})
 	begin := time.Now()
 	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
 	if err != nil {
@@ -447,7 +447,7 @@ func TestBackgroundReturnsFirstAnswerThenSwitches(t *testing.T) {
 	events := make(chan Event, 1)
 	var stages []string
 	var stageMu sync.Mutex
-	a := New(inner, Config{Judge: judge, Mode: ModeFinal, NMin: 1, NMax: 1, Background: true,
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, Vote: -1, NMin: 1, NMax: 1, Background: true,
 		Trace: func(e Event) { events <- e },
 		Stage: func(s string) { stageMu.Lock(); stages = append(stages, s); stageMu.Unlock() }})
 	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
@@ -483,7 +483,7 @@ func TestNewTurnCancelsBackgroundCheck(t *testing.T) {
 	inner := &scriptedInner{texts: []string{"first", "slow", "next"}, delays: []time.Duration{0, time.Minute, 0}}
 	judge := &fakeJudge{batches: [][]float64{{0.2}, {0.99}}}
 	var traced atomic.Int32
-	a := New(inner, Config{Judge: judge, Mode: ModeFinal, NMin: 1, NMax: 1, Background: true,
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, Vote: -1, NMin: 1, NMax: 1, Background: true,
 		MinBranchTime: time.Minute, Trace: func(e Event) {
 			if e.Branches > 0 {
 				traced.Add(1)

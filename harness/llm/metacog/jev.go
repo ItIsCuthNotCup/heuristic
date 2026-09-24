@@ -110,6 +110,37 @@ func (j *Jev) score(ctx context.Context, problem string, candidates []string, in
 	})
 }
 
+// Same asks whether paths a and b reach the same final answer.
+func (j *Jev) Same(ctx context.Context, problem, a, b string) (float64, error) {
+	half := j.cfg.MaxCharsPerPath / 2
+	body := map[string]any{
+		"model": j.cfg.Model,
+		"state": map[string]any{
+			"problem": problem,
+			"a":       truncatePath(a, half),
+			"b":       truncatePath(b, half),
+		},
+		"questions": map[string]any{
+			"same": map[string]any{"type": "noul", "instructions": SameInstructions},
+		},
+	}
+	data, err := j.post(ctx, body)
+	if err != nil {
+		return 0, err
+	}
+	var parsed struct {
+		Answers struct {
+			Same struct {
+				Noul float64 `json:"noul"`
+			} `json:"same"`
+		} `json:"answers"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return 0, &JudgeError{fmt.Sprintf("decode systemone response: %v", err)}
+	}
+	return parsed.Answers.Same.Noul, nil
+}
+
 // post mirrors judge.py _post: one retry on 5xx or transport errors, no retry
 // on 4xx.
 func (j *Jev) post(ctx context.Context, body any) ([]byte, error) {

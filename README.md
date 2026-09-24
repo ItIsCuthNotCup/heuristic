@@ -7,9 +7,8 @@
 Heuristic is an async-first agent harness — a fork of [Unreal Agent](https://github.com/unreallabsai/unreal-agent)
 by Unreal Labs (MIT) — with MetaCog inference-time metacognition built in. On answer
 turns, a judge (TypeSafe's Jev/System-One, or any local open model via
-logprobs) scores the model's answer; if it is not confident the agent writes
-2–6 more thought paths in parallel, scores them and their bare final answers,
-and returns the best. Routine tool-call turns are untouched, so Unreal
+logprobs) checks the model's answer while 3 more thought paths race; the
+first answer two paths agree on wins, and the judge picks only when none do. Routine tool-call turns are untouched, so Unreal
 Agent's cost profile is preserved.
 
 Install:
@@ -54,8 +53,9 @@ Environment:
 | `HEURISTIC_JUDGE_MODEL` | `jev-latest` | judge model |
 | `HEURISTIC_JUDGE_CONCURRENCY` | `8` (jev), `1` (local) | parallel judge requests per pool |
 | `HEURISTIC_MODE` | `final` | `final` judges answers only; `all` also judges tool-call turns; `off` disables |
-| `HEURISTIC_STOP_CONFIDENCE` | `0.95` | judge score above which the first answer is kept |
-| `HEURISTIC_N_MIN` / `N_MAX` | `2` / `6` | branch count bounds, scaled by judge uncertainty |
+| `HEURISTIC_STOP_CONFIDENCE` | `0.95` | v0.3 loop: judge score above which the first answer is kept |
+| `HEURISTIC_N_MIN` / `N_MAX` | `2` / `6` | v0.3 loop: branch count bounds, scaled by judge uncertainty |
+| `HEURISTIC_VOTE` | `3` (`off` for the v0.3 loop) | extra paths raced after an answer; the first answer two paths agree on wins |
 | `HEURISTIC_ANSWER_PRIOR` | `0.5` (`none` disables) | weight of the bare-answer score |
 | `HEURISTIC_JEV_API_KEY` | falls back to `TYPESAFE_API_KEY` | Jev key |
 | `UNREAL_HARNESS_*` | — | upstream names still work as fallbacks |
@@ -71,17 +71,27 @@ Heuristic only thinks harder when it is unsure. Each answer turn works like
 this:
 
 1. **Answer once.** The model replies as normal.
-2. **Check confidence.** The judge scores that answer from 0 to 1 (how likely
-   it is to be right). At 0.95 or above it is kept as is: one answer, no
-   extra cost.
-3. **Branch by uncertainty.** Otherwise the agent writes
-   `round(2 + (1 − score) × 4)` more answers in parallel, i.e. 2 paths when
-   it is nearly sure and up to 6 when it is lost. Together with the first
-   answer these are the *thought paths*.
-4. **Score every path.** The judge scores each full path, and separately each
-   path's bare final answer (the answer prior).
-5. **Pick the best.** The winner has the highest
-   `path score + 0.5 × bare-answer score`.
+2. **Race 3 more paths, check the first answer meanwhile.** Three more
+   answers start at once while the judge scores the first one. If it scores
+   0.98 or above the extra paths are cancelled and the first answer stands.
+3. **Stop when two paths agree.** As each path finishes it is compared with
+   the ones before it. Paths that state a final answer (`Answer: …`,
+   `\boxed{…}`) are compared directly; otherwise the judge is asked whether
+   the two reach the same answer (0.7 or above counts). The first answer two
+   paths agree on wins and any path still running is cancelled.
+4. **Otherwise the judge picks.** If no two paths agree, every path and its
+   bare final answer are scored and the highest
+   `path score + 0.5 × bare-answer score` wins.
+
+`HEURISTIC_VOTE=off` restores the MetaCog v0.3 loop: judge the first answer,
+keep it at 0.95, else write `round(2 + (1 − score) × 4)` more paths and let
+the judge pick.
+
+On 140 GPQA/AIME problems with GPT-6 Luna on Command Code (every path
+generated once, then each policy replayed on the same paths), the vote got
+127 right vs 125 for v0.3 and 119 for a single answer, in about 0.85× v0.3's
+time and 0.9× its tokens; in `heu` you see the first answer after a single
+answer's time either way.
 
 Only turns that end with an answer are judged; turns that call tools pass
 straight through, so a normal agent loop costs the same as without MetaCog.
@@ -90,14 +100,14 @@ straight through, so a normal agent loop costs the same as without MetaCog.
 
 - **You never wait for MetaCog in `heu`.** The first answer is shown as soon
   as the model finishes, and steps 2–5 run in the background while the
-  footer shows what MetaCog is doing ("MetaCog is trying 3 more thought
-  paths…"). If a different path wins, `heu` prints it as *found a better
+  footer shows what MetaCog is doing ("MetaCog is checking with 3 more
+  thought paths…"). If a different path wins, `heu` prints it as *found a better
   answer* and your next message continues from it. Sending a new message
   cancels a check that hasn't finished. One-shot runs (`heuristic -p`) still
   wait and return the winner directly.
 - **Slow paths are dropped.** The extra paths get 1.5× as long as the first
   answer took (at least 20 s); any path still running then is cancelled and
-  the rest are judged. Each judging step gives up after 30 s and keeps the
+  the rest are compared. Each judging step gives up after 30 s and keeps the
   first answer.
 
 When MetaCog branches, `heu` lists every path under its note:
@@ -112,8 +122,9 @@ When MetaCog branches, `heu` lists every path under its note:
 ```
 
 Each summary is the first line of that path's own text and the number is its
-judge score, so the list costs no extra model or judge calls. `❯` marks the
-path the conversation is using.
+judge score, so the list costs no extra model or judge calls. When a vote
+decided, each path shows `agrees` or `differs` instead of a score. `❯` marks
+the path the conversation is using.
 
 Press **Ctrl+T** (or type `/paths`) to open the list. Pick a path with ↑↓
 and Enter to read it in full. On a path that isn't in use, choose
