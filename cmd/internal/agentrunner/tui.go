@@ -337,6 +337,10 @@ func (t *tui) metacogEvent(event metacog.Event) {
 	if event.Stopped {
 		line = fmt.Sprintf("%s %s %s", p.accent("◆"), p.bold("MetaCog"),
 			p.dim(fmt.Sprintf("confident (%.2f) — kept the first answer · %.1fs", event.GreedyScore, secs)))
+	} else if agree := countTrue(event.Agree); agree > 0 {
+		line = fmt.Sprintf("%s %s %s", p.accent("◆"), p.bold("MetaCog"),
+			p.dim(fmt.Sprintf("%d of %d thought paths agree → Thought Path %d · %.1fs",
+				agree, len(event.Paths), event.Chosen+1, secs)))
 	} else if len(event.Scores) == 0 {
 		line = fmt.Sprintf("%s %s %s", p.accent("◆"), p.bold("MetaCog"),
 			p.dim(fmt.Sprintf("unsure (%.2f) → tried %d more thought paths → kept the first answer · %.1fs",
@@ -615,6 +619,12 @@ func (t *tui) backgroundLine(event metacog.Event) string {
 	switch {
 	case event.Stopped:
 		return head + p.dim(fmt.Sprintf("checked the answer: confident (%.2f) · %.1fs", event.GreedyScore, secs))
+	case len(event.Agree) > 0 && event.Chosen == 0:
+		return head + p.dim(fmt.Sprintf("double-checked: %d of %d thought paths agree with the first answer · %.1fs",
+			countTrue(event.Agree), len(event.Paths), secs))
+	case len(event.Agree) > 0:
+		return head + fmt.Sprintf("found a better answer: Thought Path %d (%d of %d thought paths agree)", event.Chosen+1,
+			countTrue(event.Agree), len(event.Paths)) + p.dim(fmt.Sprintf(" · %.1fs", secs))
 	case len(event.Scores) == 0 || event.Chosen == 0:
 		return head + p.dim(fmt.Sprintf("double-checked with %d more thought paths: the first answer holds · %.1fs",
 			event.Branches, secs))
