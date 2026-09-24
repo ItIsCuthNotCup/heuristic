@@ -28,7 +28,21 @@ Request schema (JSON object; unknown fields are rejected):
   include_partial_messages: boolean (optional; accepted but ignored)
 `
 
-func writeUsage(flags *flag.FlagSet) error {
+func writeUsage(flags *flag.FlagSet, interactive bool) error {
+	if interactive {
+		if _, err := fmt.Fprintf(flags.Output(), `Usage:
+  %[1]s [options] [prompt...]
+
+Interactive Heuristic agent; positional words form the first request,
+then stdin is read line by line (/help lists slash commands, EOF exits).
+
+Options:
+`, flags.Name()); err != nil {
+			return fmt.Errorf("write usage: %w", err)
+		}
+		flags.PrintDefaults()
+		return nil
+	}
 	if _, err := fmt.Fprintf(flags.Output(), `Usage:
   %[1]s [options] < request.json
   %[1]s [options] 'JSON request'

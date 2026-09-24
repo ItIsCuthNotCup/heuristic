@@ -140,11 +140,13 @@ func RunMain(
 	if context.Cause(ctx) != nil {
 		return 130
 	}
-	encoded, encodeErr := json.Marshal(errorEvent{Type: "error", Message: err.Error()})
-	if encodeErr != nil {
-		err = errors.Join(err, fmt.Errorf("encode error event: %w", encodeErr))
-	} else if _, writeErr := fmt.Fprintf(output, "%s\n", encoded); writeErr != nil {
-		err = errors.Join(err, fmt.Errorf("write error event: %w", writeErr))
+	if !config.Interactive {
+		encoded, encodeErr := json.Marshal(errorEvent{Type: "error", Message: err.Error()})
+		if encodeErr != nil {
+			err = errors.Join(err, fmt.Errorf("encode error event: %w", encodeErr))
+		} else if _, writeErr := fmt.Fprintf(output, "%s\n", encoded); writeErr != nil {
+			err = errors.Join(err, fmt.Errorf("write error event: %w", writeErr))
+		}
 	}
 	prefix := ""
 	if config.Name != "" {
@@ -176,7 +178,7 @@ func Run(
 	flags.SetOutput(flagOutput)
 	var usageErr error
 	flags.Usage = func() {
-		usageErr = writeUsage(flags)
+		usageErr = writeUsage(flags, config.Interactive)
 	}
 	var prompt *string
 	flags.Func("p", "send a request with the given `prompt` without reading stdin", func(value string) error {
@@ -188,7 +190,10 @@ func Run(
 	logDirectory := flags.String("log-directory", "", "session JSONL log directory; defaults to <workspace>/logs")
 	toolHeartbeatInterval := flags.Duration("tool-heartbeat-interval", 10*time.Minute, "tool-wait heartbeat interval (0 disables)")
 	metacogMode := flags.String("metacog", "", "metacognition mode: off|final|all (off disables the judge wrapper)")
-	resumeID := flags.String("resume", "", "resume the session with this ID (interactive mode)")
+	var resumeID *string
+	if config.Interactive {
+		resumeID = flags.String("resume", "", "resume the session with this ID")
+	}
 	if err := flags.Parse(args); err != nil {
 		if usageErr != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -200,9 +205,6 @@ func Run(
 	}
 	if flags.NArg() > 1 && !config.Interactive {
 		return errors.New("expected at most one positional JSON request")
-	}
-	if *resumeID != "" && !config.Interactive {
-		return errors.New("-resume requires interactive mode")
 	}
 	if prompt != nil && flags.NArg() != 0 {
 		return errors.New("-p cannot be combined with a positional JSON request")
@@ -554,6 +556,10 @@ func Run(
 		return observerErr
 	}
 	if coordinatorErr != nil {
+		if config.Interactive && errors.Is(coordinatorErr, context.Canceled) && ctx.Err() != nil {
+			fmt.Fprintf(output, "\ninterrupted — resume with: %s -resume %s\n", config.Name, sessionID)
+			return nil
+		}
 		return fmt.Errorf("run coordinator: %w", coordinatorErr)
 	}
 	return nil

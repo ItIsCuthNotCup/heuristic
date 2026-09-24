@@ -5,7 +5,6 @@ import (
 	"encoding/json/v2"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
 	"github.com/ItIsCuthNotCup/heuristic/harness/llm/metacog"
@@ -14,11 +13,10 @@ import (
 	"github.com/ItIsCuthNotCup/heuristic/harness/tool"
 )
 
-func renderItems(r *renderer, items ...sessionstore.Item) string {
+func renderItems(r *renderer, items ...sessionstore.Item) {
 	for _, item := range items {
 		r.Observe("s", item)
 	}
-	return ""
 }
 
 func testRenderer(showPrompt bool) (*renderer, *bytes.Buffer) {
@@ -115,5 +113,14 @@ func TestRendererSkipsInputAndTurn(t *testing.T) {
 	if out.Len() != 0 {
 		t.Fatalf("output = %q, want silence", out.String())
 	}
-	_ = time.Now
+}
+
+func TestRendererSkipsWaitingStatus(t *testing.T) {
+	r, out := testRenderer(false)
+	renderItems(r, sessionstore.Item{Kind: sessionstore.ItemToolCallStatus, Data: sessionstore.ToolCallStatus{
+		Status: tool.CallStatus{WaitingFor: []operation.ID{"op-1"}},
+	}})
+	if out.Len() != 0 {
+		t.Fatalf("waiting status = %q, want silence", out.String())
+	}
 }

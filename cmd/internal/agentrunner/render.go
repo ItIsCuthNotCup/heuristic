@@ -75,8 +75,8 @@ func (r *renderer) modelResponse(resp llm.Response) {
 				r.printf("%s\n", r.dim("  "+line))
 			}
 		case llm.Message:
-			if strings.TrimSpace(data.Text) != "" {
-				r.printf("%s\n", data.Text)
+			if text := strings.TrimSpace(data.Text); text != "" {
+				r.printf("%s\n", text)
 			}
 		case llm.ToolCall:
 			r.printf("⚙ %s\n", toolCallLine(data))
@@ -121,6 +121,10 @@ func toolCallLine(call llm.ToolCall) string {
 func (r *renderer) toolCallStatus(status sessionstore.ToolCallStatus) {
 	if status.Status.Error != "" {
 		r.printf("✗ %s\n", truncateRunes(status.Status.Error, 500))
+		return
+	}
+	if len(status.Status.WaitingFor) != 0 {
+		// Still running; only the terminal status is rendered.
 		return
 	}
 	rendered := false

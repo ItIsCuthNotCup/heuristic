@@ -226,7 +226,7 @@ func TestInteractiveRejectsResumeInOneShot(t *testing.T) {
 			return llm.Response{}, errors.New("unreachable")
 		}}),
 	)
-	if code != 1 || !strings.Contains(stderr.String(), "-resume requires interactive mode") {
+	if code != 1 || !strings.Contains(stderr.String(), "flag provided but not defined: -resume") {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }
