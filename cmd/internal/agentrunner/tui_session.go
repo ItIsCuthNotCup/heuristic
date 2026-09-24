@@ -191,6 +191,10 @@ func (m *tuiLoop) drive(ctx context.Context, start nextSession) (nextSession, er
 			if pending != nil {
 				return *pending, nil
 			}
+			if err != nil && ctx.Err() == nil && isAuthError(err) {
+				t.c.Print(p.red("✗ ") + friendlyError(err) + "\n" + p.dim("  Let's sign in again.") + "\n")
+				return nextSession{sessionID: currentID, after: m.login}, nil
+			}
 			if err != nil && ctx.Err() == nil {
 				t.c.Print(p.red("✗ ") + friendlyError(err) + "\n" +
 					p.dim("  Fix it with /login or /model, or send a message to try again.") + "\n")
@@ -380,12 +384,12 @@ func (m *tuiLoop) command(
 		}
 		t.c.Print(p.dim("── new conversation ──") + "\n")
 		return stopThen(nextSession{})
-	case "/model":
+	case "/model", "/models":
 		if needsIdle() {
 			break
 		}
 		return stopThen(nextSession{sessionID: currentID, after: m.pickModel})
-	case "/login", "/setup":
+	case "/login", "/setup", "/provider":
 		if needsIdle() {
 			break
 		}
