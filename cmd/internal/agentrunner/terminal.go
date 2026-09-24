@@ -282,6 +282,14 @@ func (c *console) width() int {
 	return w
 }
 
+func (c *console) height() int {
+	_, h, err := term.GetSize(int(c.out.Fd()))
+	if err != nil || h <= 0 {
+		return 24
+	}
+	return h
+}
+
 func (c *console) SetView(view func(width int) ([]string, int, int)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
