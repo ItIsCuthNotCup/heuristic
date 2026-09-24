@@ -78,7 +78,6 @@ func (a *ttyAsker) choose(title, hint string, options []option, def int) (int, e
 			cursor = i
 		}
 	}
-	const window = 10
 	view := func(width int) ([]string, int, int) {
 		visible := matches()
 		lines := []string{"", p.bold(title)}
@@ -88,6 +87,8 @@ func (a *ttyAsker) choose(title, hint string, options []option, def int) (int, e
 			}
 		}
 		lines = append(lines, "")
+		// Fill the terminal, leaving room for the footer rows below the list.
+		window := max(5, a.c.height()-len(lines)-5)
 		start := 0
 		if cursor >= window {
 			start = cursor - window + 1
