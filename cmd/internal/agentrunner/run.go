@@ -104,6 +104,16 @@ type environmentChange struct {
 
 type environmentScope struct {
 	changes []environmentChange
+	names   map[string]bool
+}
+
+// setNames reports which variables this scope assigned.
+func (scope *environmentScope) setNames() map[string]bool {
+	names := make(map[string]bool, len(scope.names))
+	for name := range scope.names {
+		names[name] = true
+	}
+	return names
 }
 
 type errorEvent struct {
@@ -191,8 +201,10 @@ func Run(
 	toolHeartbeatInterval := flags.Duration("tool-heartbeat-interval", 10*time.Minute, "tool-wait heartbeat interval (0 disables)")
 	metacogMode := flags.String("metacog", "", "metacognition mode: off|final|all (off disables the judge wrapper)")
 	var resumeID *string
+	continueLast := new(bool)
 	if config.Interactive {
 		resumeID = flags.String("resume", "", "resume the session with this ID")
+		continueLast = flags.Bool("c", false, "continue the most recent conversation")
 	}
 	if err := flags.Parse(args); err != nil {
 		if usageErr != nil {
@@ -205,6 +217,13 @@ func Run(
 	}
 	if flags.NArg() > 1 && !config.Interactive {
 		return errors.New("expected at most one positional JSON request")
+	}
+	if config.Interactive && flags.NArg() == 1 && (flags.Arg(0) == "setup" || flags.Arg(0) == "login") {
+		if !isTerminalIO(input, output) {
+			return errors.New("heu setup requires a terminal")
+		}
+		_, err := runTerminalSetup(ctx, input, output, getenv, config.Providers)
+		return err
 	}
 	if prompt != nil && flags.NArg() != 0 {
 		return errors.New("-p cannot be combined with a positional JSON request")
@@ -274,7 +293,26 @@ func Run(
 	if !workspaceInfo.IsDir() {
 		return fmt.Errorf("workspace %q is not a directory", workspace)
 	}
-	environment, err := loadDotEnv(filepath.Join(workspace, ".env"))
+	// Precedence: process env > workspace .env > user config (~/.config).
+	// The user config loads first; the workspace .env may override names it
+	// set this run but never real process-env vars.
+	var userConfig *environmentScope
+	if config.Interactive {
+		userConfig, err = loadDotEnv(userConfigPath(getenv))
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if err := userConfig.Close(); err != nil {
+				runErr = errors.Join(runErr, err)
+			}
+		}()
+	}
+	var overridable map[string]bool
+	if userConfig != nil {
+		overridable = userConfig.setNames()
+	}
+	environment, err := loadDotEnvInto(filepath.Join(workspace, ".env"), overridable)
 	if err != nil {
 		return err
 	}
@@ -287,20 +325,112 @@ func Run(
 	if err != nil {
 		return err
 	}
+	spec := sessionSpec{
+		config:           config,
+		parsed:           parsed,
+		newTools:         newTools,
+		messages:         messages,
+		getenv:           getenv,
+		maxAttempts:      maxAttempts,
+		metacogMode:      *metacogMode,
+		oneShot:          prompt != nil,
+		input:            input,
+		output:           output,
+		flagOutput:       flagOutput,
+		workspace:        workspace,
+		sessionDirectory: *sessionDirectory,
+		logDirectory:     *logDirectory,
+		heartbeat:        *toolHeartbeatInterval,
+	}
+	if *continueLast && spec.parsed.SessionID == nil {
+		id, err := latestSessionID(ctx, spec.sessionDirectory)
+		if err != nil {
+			return err
+		}
+		spec.parsed.SessionID = &id
+	}
+	terminal := config.Interactive && isTerminalIO(input, output)
+	if terminal && prompt == nil {
+		return runTUI(ctx, spec)
+	}
+	if config.Interactive {
+		resolved, err := resolveClient(spec)
+		if err == nil {
+			err = resolved.client.Close()
+		}
+		if err != nil {
+			// Missing credentials on a real terminal: onboard first.
+			if !terminal {
+				return fmt.Errorf("%w (run `heu setup` in a terminal to configure)", err)
+			}
+			values, setupErr := runTerminalSetup(ctx, input, output, getenv, config.Providers)
+			if setupErr != nil {
+				return errors.Join(err, fmt.Errorf("setup: %w", setupErr))
+			}
+			spec.getenv = overlayEnv(getenv, values)
+		}
+	}
+	return runSession(ctx, spec)
+}
+
+// sessionSpec is everything one agent session needs; the terminal UI
+// reruns sessions from it with a different model, provider or session id.
+type sessionSpec struct {
+	config           Config
+	parsed           Request
+	newTools         ToolFactory
+	messages         []RequestMessage
+	getenv           func(string) string
+	maxAttempts      int
+	metacogMode      string
+	oneShot          bool
+	input            io.Reader
+	output           io.Writer
+	flagOutput       io.Writer
+	workspace        string
+	sessionDirectory string
+	logDirectory     string
+	heartbeat        time.Duration
+
+	// ui, when set, renders the session and receives the inbox via onReady
+	// instead of the line-based input loop.
+	ui      *tui
+	onReady func(sessionHandle)
+}
+
+// sessionHandle is a running session as seen by the terminal UI.
+type sessionHandle struct {
+	id       session.ID
+	inputs   *inbox.Inbox
+	context  context.Context
+	provider string
+	baseURL  string
+	model    string
+	judge    string
+}
+
+type resolvedClient struct {
+	provider Provider
+	baseURL  string
+	model    string
+	client   Client
+}
+
+func resolveClient(spec sessionSpec) (resolvedClient, error) {
+	getenv := spec.getenv
 	providerName := strings.TrimSpace(lookupEnv(getenv, llmProviderEnvironment))
 	if providerName == "" {
 		providerName = defaultProvider
 	}
-	selected, err := selectProvider(config.Providers, providerName)
+	selected, err := selectProvider(spec.config.Providers, providerName)
 	if err != nil {
-		return err
+		return resolvedClient{}, err
 	}
 	configuredBaseURL := strings.TrimSpace(lookupEnv(getenv, llmBaseURLEnvironment))
 	if configuredBaseURL == "" {
 		configuredBaseURL = selected.BaseURL
 	}
-
-	model := strings.TrimSpace(parsed.Model)
+	model := strings.TrimSpace(spec.parsed.Model)
 	if model == "" {
 		model = strings.TrimSpace(lookupEnv(getenv, llmModelEnvironment))
 	}
@@ -308,7 +438,7 @@ func Run(
 		model = selected.DefaultModel
 	}
 	if model == "" {
-		return fmt.Errorf("model must be set in the request or %s", llmModelEnvironment)
+		return resolvedClient{}, fmt.Errorf("model must be set in the request or %s", llmModelEnvironment)
 	}
 	var apiKey string
 	if selected.APIKeyEnvironment != "" {
@@ -317,30 +447,44 @@ func Run(
 			apiKey = lookupEnv(getenv, selected.APIKeyEnvironment)
 		}
 		if strings.TrimSpace(apiKey) == "" {
-			return fmt.Errorf(
+			return resolvedClient{}, fmt.Errorf(
 				"%s or %s must be set",
 				llmAPIKeyEnvironment,
 				selected.APIKeyEnvironment,
 			)
 		}
 	}
-	client, err := selected.NewClient(apiKey, configuredBaseURL, maxAttempts, getenv)
+	client, err := selected.NewClient(apiKey, configuredBaseURL, spec.maxAttempts, getenv)
 	if err != nil {
-		return fmt.Errorf("create %s client: %w", selected.Name, err)
+		return resolvedClient{}, fmt.Errorf("create %s client: %w", selected.Name, err)
 	}
+	return resolvedClient{provider: selected, baseURL: configuredBaseURL, model: model, client: client}, nil
+}
+
+func runSession(ctx context.Context, spec sessionSpec) (runErr error) {
+	config, parsed, getenv := spec.config, spec.parsed, spec.getenv
+	output, flagOutput, workspace, messages := spec.output, spec.flagOutput, spec.workspace, spec.messages
+	resolved, err := resolveClient(spec)
+	if err != nil {
+		return err
+	}
+	selected, model, client := resolved.provider, resolved.model, resolved.client
 	defer func() {
 		if err := client.Close(); err != nil {
 			runErr = errors.Join(runErr, fmt.Errorf("close %s client: %w", selected.Name, err))
 		}
 	}()
 
-	mcConfig, mcJudge, err := resolveMetaCog(getenv, parsed.MetaCog, *metacogMode)
+	mcConfig, mcJudge, err := resolveMetaCog(getenv, parsed.MetaCog, spec.metacogMode)
 	if err != nil {
 		return err
 	}
 	var render *renderer
-	if config.Interactive {
-		render = newRenderer(output, getenv, prompt == nil)
+	switch {
+	case spec.ui != nil:
+		render = &renderer{ui: spec.ui}
+	case config.Interactive:
+		render = newRenderer(output, getenv, !spec.oneShot)
 	}
 	var llmAdapter llm.Adapter = client
 	if mcConfig.Mode != metacog.ModeOff && mcConfig.Judge != nil {
@@ -366,7 +510,7 @@ func Run(
 		llmAdapter = metacog.New(client, mcConfig)
 	}
 
-	storeDirectory, err := filepath.Abs(strings.TrimSpace(*sessionDirectory))
+	storeDirectory, err := filepath.Abs(strings.TrimSpace(spec.sessionDirectory))
 	if err != nil {
 		return fmt.Errorf("resolve session directory: %w", err)
 	}
@@ -378,7 +522,7 @@ func Run(
 	if err != nil {
 		return err
 	}
-	logFile, err := openDatetimeLog(resolveLogDirectory(workspace, *logDirectory), time.Now())
+	logFile, err := openDatetimeLog(resolveLogDirectory(workspace, spec.logDirectory), time.Now())
 	if err != nil {
 		return err
 	}
@@ -420,7 +564,7 @@ func Run(
 			ViewImage: viewimage.New(viewimage.Config{Directory: workspace}),
 		},
 	}
-	configuredTools, err := newTools(runContext, toolConfig)
+	configuredTools, err := spec.newTools(runContext, toolConfig)
 	if err != nil {
 		return err
 	}
@@ -483,7 +627,7 @@ func Run(
 
 	// Interactive REPL mode stays alive for follow-up input; the input loop
 	// submits StopWhenIdle on /quit or EOF. -p still runs to idle.
-	if !config.Interactive || prompt != nil {
+	if !config.Interactive || spec.oneShot {
 		stopPayload, err := json.Marshal(inbox.ControlMessage{Mode: inbox.StopWhenIdle})
 		if err != nil {
 			return fmt.Errorf("encode stop request: %w", err)
@@ -521,7 +665,12 @@ func Run(
 		renderID = store.AddObserver(render.Observe)
 		defer store.RemoveObserver(renderID)
 	}
-	if config.Interactive {
+	if spec.ui != nil {
+		spec.onReady(sessionHandle{
+			id: sessionID, inputs: inputs, context: runContext,
+			provider: selected.Name, baseURL: resolved.baseURL, model: model, judge: mcJudge,
+		})
+	} else if config.Interactive {
 		mcLine := "metacog: off"
 		if mcConfig.Mode != metacog.ModeOff && mcConfig.Judge != nil {
 			mcLine = fmt.Sprintf("metacog: judge=%s mode=%s", mcJudge, mcConfig.Mode)
@@ -531,17 +680,17 @@ func Run(
 			selected.Name, model, workspace, mcLine, sessionID); err != nil {
 			return fmt.Errorf("write banner: %w", err)
 		}
-		if prompt == nil {
+		if !spec.oneShot {
 			if _, err := fmt.Fprint(output, "\n› "); err != nil {
 				return fmt.Errorf("write prompt: %w", err)
 			}
 		}
 	}
-	if config.Interactive && prompt == nil {
-		go runInputLoop(runContext, input, inputs, output, sessionID)
+	if spec.ui == nil && config.Interactive && !spec.oneShot {
+		go runInputLoop(runContext, spec.input, inputs, output, sessionID)
 	}
 	current := coordinator.New(coordinator.Dependencies{
-		ToolHeartbeatInterval: *toolHeartbeatInterval,
+		ToolHeartbeatInterval: spec.heartbeat,
 		SessionID:             sessionID,
 		Inbox:                 inputs,
 		Restored:              restored,
@@ -556,7 +705,7 @@ func Run(
 		return observerErr
 	}
 	if coordinatorErr != nil {
-		if config.Interactive && errors.Is(coordinatorErr, context.Canceled) && ctx.Err() != nil {
+		if spec.ui == nil && config.Interactive && errors.Is(coordinatorErr, context.Canceled) && ctx.Err() != nil {
 			fmt.Fprintf(output, "\ninterrupted — resume with: %s -resume %s\n", config.Name, sessionID)
 			return nil
 		}
@@ -677,10 +826,17 @@ func openDatetimeLog(directory string, now time.Time) (*os.File, error) {
 }
 
 func loadDotEnv(path string) (*environmentScope, error) {
+	return loadDotEnvInto(path, nil)
+}
+
+// loadDotEnvInto is loadDotEnv with an extra rule: names in overridable
+// (set by an earlier scope in this run, e.g. the user config) may be
+// reassigned even though they are present in the process environment.
+func loadDotEnvInto(path string, overridable map[string]bool) (*environmentScope, error) {
 	encoded, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return &environmentScope{}, nil
+			return &environmentScope{names: map[string]bool{}}, nil
 		}
 		return nil, fmt.Errorf("read environment file: %w", err)
 	}
@@ -700,10 +856,10 @@ func loadDotEnv(path string) (*environmentScope, error) {
 		}
 		values[name] = strings.TrimSpace(value)
 	}
-	scope := &environmentScope{}
+	scope := &environmentScope{names: map[string]bool{}}
 	for name, value := range values {
 		_, present := os.LookupEnv(name)
-		if present && name != "SANDBOX_EGRESS_PROXY" {
+		if present && name != "SANDBOX_EGRESS_PROXY" && !overridable[name] {
 			continue
 		}
 		if err := scope.set(name, value); err != nil {
@@ -726,6 +882,10 @@ func (scope *environmentScope) set(name, value string) error {
 	scope.changes = append(scope.changes, environmentChange{
 		name: name, value: previous, present: present,
 	})
+	if scope.names == nil {
+		scope.names = map[string]bool{}
+	}
+	scope.names[name] = true
 	return nil
 }
 

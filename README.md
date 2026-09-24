@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.svg" alt="Heuristic" width="200"></p>
+
 # Heuristic
 
 *An agent that doesn't overthink.*
@@ -28,14 +30,19 @@ heuristic -p 'Solve this task.'
 
 ```sh
 go install github.com/ItIsCuthNotCup/heuristic/cmd/heu@latest
-heu                     # banner + prompt
+heu                     # sign in on first run, then chat
 heu "fix the failing test"
-heu -p "summarize this repo"     # one-shot
+heu -c                  # continue the last conversation in this folder
 heu -resume <session-id>
+heu -p "summarize this repo"     # one-shot
 ```
 
-`heu` runs the same agent loop as `heuristic` with a human-readable
-transcript and slash commands (`/help`, `/session`, `/quit`). See
+`heu` is a full terminal coding agent on the same loop as `heuristic`:
+arrow-key sign-in (ChatGPT, Command Code, OpenAI, OpenRouter, Fireworks,
+Ollama, or any server) with a live connection check, Markdown answers,
+compact tool cards with collapsed output (Ctrl-O expands), a `/` command
+menu, history, multi-line paste, Esc to interrupt, and a footer with model,
+tokens and MetaCog state. It runs tools without asking (yolo). See
 [cmd/heu/README.md](cmd/heu/README.md).
 
 Environment:

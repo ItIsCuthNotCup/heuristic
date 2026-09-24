@@ -3,6 +3,9 @@ package openaicodex
 import (
 	"encoding/base64"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -126,5 +129,70 @@ func TestEnvironmentConfig(t *testing.T) {
 				t.Fatal("incorrect credential source selected")
 			}
 		})
+	}
+}
+
+func TestRefreshExpiringToken(t *testing.T) {
+	var gotForm string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotForm = string(body)
+		fmt.Fprint(w, `{"access_token":"new-token","refresh_token":"new-refresh","id_token":"id"}`)
+	}))
+	defer server.Close()
+	old := refreshTokenURL
+	refreshTokenURL = server.URL
+	defer func() { refreshTokenURL = old }()
+
+	path := filepath.Join(t.TempDir(), "auth.json")
+	expiring := testToken("account", time.Now().Add(2*time.Minute).Unix())
+	writeTestAuth(t, path, expiring, "account")
+
+	got, err := (Config{AuthFile: path}).credentials()
+	if err != nil {
+		t.Fatalf("credentials: %v", err)
+	}
+	if got.accessToken != "new-token" {
+		t.Fatalf("accessToken = %q", got.accessToken)
+	}
+	if !strings.Contains(gotForm, "grant_type=refresh_token") ||
+		!strings.Contains(gotForm, "refresh_token=never-use-or-write") ||
+		!strings.Contains(gotForm, "client_id="+oauthClientID) {
+		t.Fatalf("refresh form = %q", gotForm)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "new-token") || !strings.Contains(string(data), "new-refresh") {
+		t.Fatalf("auth file not updated: %s", data)
+	}
+}
+
+func TestRefreshNotNeededForFreshToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("refresh endpoint hit for a fresh token")
+	}))
+	defer server.Close()
+	old := refreshTokenURL
+	refreshTokenURL = server.URL
+	defer func() { refreshTokenURL = old }()
+
+	path := filepath.Join(t.TempDir(), "auth.json")
+	fresh := testToken("account", time.Now().Add(time.Hour).Unix())
+	writeTestAuth(t, path, fresh, "account")
+	got, err := (Config{AuthFile: path}).credentials()
+	if err != nil || got.accessToken != fresh {
+		t.Fatalf("credentials = %q %v", got.accessToken, err)
+	}
+}
+
+func TestExpiredWithoutRefreshStillErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	data := []byte(fmt.Sprintf(`{"auth_mode":"chatgpt","tokens":{"access_token":%q,"account_id":"account"}}`,
+		testToken("account", time.Now().Add(-time.Hour).Unix())))
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := (Config{AuthFile: path}).credentials()
+	if err == nil || !strings.Contains(err.Error(), "no refresh token") {
+		t.Fatalf("error = %v", err)
 	}
 }

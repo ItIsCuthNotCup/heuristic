@@ -32,9 +32,11 @@ func writeUsage(flags *flag.FlagSet, interactive bool) error {
 	if interactive {
 		if _, err := fmt.Fprintf(flags.Output(), `Usage:
   %[1]s [options] [prompt...]
+  %[1]s setup
 
-Interactive Heuristic agent; positional words form the first request,
-then stdin is read line by line (/help lists slash commands, EOF exits).
+Heuristic, an agent that doesn't overthink. Opens a terminal chat (signs you
+in on first run); positional words form the first request. Type / for
+commands. Without a terminal, stdin is read line by line.
 
 Options:
 `, flags.Name()); err != nil {
