@@ -161,6 +161,13 @@ func (r *renderer) Event(event metacog.Event) {
 		return
 	}
 	if event.Stopped {
+		if event.Skipped {
+			r.printf("%s\n", r.dim(fmt.Sprintf(
+				"◆ metacog: simple request, answered directly (%.1fs)",
+				float64(event.DurationMs)/1000,
+			)))
+			return
+		}
 		r.printf("%s\n", r.dim(fmt.Sprintf(
 			"◆ metacog: confident %.2f, no branching (%d judge call(s), %.1fs)",
 			event.GreedyScore, event.JudgeCalls, float64(event.DurationMs)/1000,

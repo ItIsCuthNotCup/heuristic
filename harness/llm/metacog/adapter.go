@@ -42,11 +42,15 @@ type Config struct {
 	// stated final answer count as agreeing. Default 0.7.
 	SameThreshold float64
 	// Router is the cheap judge used for control-plane work around a turn:
-	// it lowers reasoning effort for easy requests and decides which old
-	// transcript chunks may be stubbed. Defaults to Judge when it
-	// implements NoulJudge; RouterOff disables routing and pruning.
+	// it lowers reasoning effort for easy requests, decides which old
+	// transcript chunks may be stubbed, and may strip tool schemas on
+	// pure-chat turns. Defaults to Judge when it implements NoulJudge;
+	// RouterOff disables routing, pruning and the tool gate.
 	Router    NoulJudge
 	RouterOff bool
+	// ToolGateOff keeps every request's tool schemas verbatim: when set,
+	// the router no longer strips them on turns it judges pure chat.
+	ToolGateOff bool
 	// PruneChars replaces old tool outputs the router finds irrelevant
 	// with stubs once the request transcript grows past this many
 	// characters. Default 48000; <= 0 disables. The system message and the
@@ -112,7 +116,10 @@ type Event struct {
 	Chosen      int       `json:"chosen"`
 	JudgeCalls  int       `json:"judge_calls"`
 	Stopped     bool      `json:"stopped"`
-	DurationMs  int64     `json:"duration_ms"`
+	// Skipped reports the router judged the request trivial, so the first
+	// answer was returned without judging or extra thought paths.
+	Skipped    bool  `json:"skipped,omitempty"`
+	DurationMs int64 `json:"duration_ms"`
 	// Paths holds the text of every thought path in pool order (the first
 	// answer, then the branches), aligned with Scores.
 	Paths []string `json:"-"`
@@ -140,13 +147,14 @@ type Adapter struct {
 
 	mu       sync.Mutex
 	swaps    map[string]string
-	check    func()                           // cancels the running background check
-	efforts  map[[32]byte]llm.ReasoningEffort // routed effort per user message
-	verdicts map[[32]byte]bool                // prune keep/drop per chunk
+	check    func()                    // cancels the running background check
+	efforts  map[[32]byte]routedEffort // routed difficulty per user message
+	verdicts map[[32]byte]pruneVerdict // prune keep/head/stub per chunk
+	chats    map[[32]byte]bool         // needs-tools verdict per user message
 }
 
 func New(inner llm.Adapter, cfg Config) *Adapter {
-	return &Adapter{inner: inner, cfg: cfg.withDefaults(), efforts: map[[32]byte]llm.ReasoningEffort{}, verdicts: map[[32]byte]bool{}}
+	return &Adapter{inner: inner, cfg: cfg.withDefaults(), efforts: map[[32]byte]routedEffort{}, verdicts: map[[32]byte]pruneVerdict{}, chats: map[[32]byte]bool{}}
 }
 
 var _ llm.Adapter = (*Adapter)(nil)
@@ -253,6 +261,14 @@ func (a *Adapter) think(ctx context.Context, req llm.Request, opts llm.RequestOp
 	defer a.setStage("")
 
 	problem := BuildProblem(req, a.cfg.MaxProblemChars)
+	if a.trivial(req) {
+		// The router already judged this request easy: nothing to gain
+		// from extra thought paths, so skip the judge and the vote.
+		event.Stopped = true
+		event.Skipped = true
+		emit()
+		return greedy
+	}
 	if a.cfg.Vote > 0 && isFinalResponse(greedy) {
 		return a.vote(ctx, req, opts, greedy, problem, greedyTime, &event, &judgeCalls, emit, background)
 	}
@@ -277,6 +293,9 @@ func (a *Adapter) think(ctx context.Context, req llm.Request, opts llm.RequestOp
 	n := int(math.Round(float64(a.cfg.NMin) + u*float64(a.cfg.NMax-a.cfg.NMin)))
 	if n < 1 {
 		n = 1
+	}
+	if extra := a.pathBudget(req); n > extra {
+		n = extra
 	}
 	event.Branches = n
 
