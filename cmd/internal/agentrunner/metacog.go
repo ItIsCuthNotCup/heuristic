@@ -20,7 +20,8 @@ type MetaCogRequest struct {
 	// Vote is how many extra paths race after a final answer; "off" uses
 	// the v0.3 judge-first loop.
 	Vote string `json:"vote"`
-	// Tree switches branching to the sketch tree: "on"/"off" or a depth.
+	// Tree switches branching to the concise-path fusion tree: "on"/"off"
+	// or a round count.
 	Tree string `json:"tree"`
 }
 
@@ -140,15 +141,15 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 			return cfg, "", fmt.Errorf("HEURISTIC_VOTE must be a positive number or off, got %q", vote)
 		}
 	}
-	// The sketch tree: compact thought paths instead of full-answer
-	// branches. "on" gives 3 levels; a number sets the depth.
+	// The concise-path fusion tree: short candidate answers instead of
+	// full-answer branches. "on" gives 3 rounds; a number sets the rounds.
 	switch {
 	case strings.EqualFold(tree, "on"):
 		cfg.TreeDepth = 3
 	case tree != "" && !strings.EqualFold(tree, "off"):
 		cfg.TreeDepth, err = strconv.Atoi(tree)
 		if err != nil || cfg.TreeDepth < 1 {
-			return cfg, "", fmt.Errorf("HEURISTIC_TREE must be on, off or a depth, got %q", tree)
+			return cfg, "", fmt.Errorf("HEURISTIC_TREE must be on, off or a round count, got %q", tree)
 		}
 	}
 	if width := lookupEnv(getenv, "TREE_WIDTH"); width != "" {

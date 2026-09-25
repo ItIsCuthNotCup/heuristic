@@ -113,14 +113,14 @@ func (t *tui) explorePaths(ctx context.Context, use func(original, replacement s
 	}
 	a := newTTYAsker(t.c)
 	defer t.c.SetView(t.view)
-	selected := paths.inUse
+	selected := max(paths.inUse, 0)
 	for ctx.Err() == nil {
 		options := make([]option, len(paths.texts))
 		for i, text := range paths.texts {
 			detail := paths.mark(i)
 			switch {
 			case i == paths.picked && paths.tree:
-				detail += " · expanded"
+				detail += " · used"
 			case i == paths.inUse && i == paths.picked:
 				detail += " · picked, in use"
 			case i == paths.inUse:
@@ -133,9 +133,7 @@ func (t *tui) explorePaths(ctx context.Context, use func(original, replacement s
 			options[i] = option{label: fmt.Sprintf("Thought Path %d", i+1), detail: detail + " · " + pathSummary(text, 60)}
 		}
 		hint := "Enter opens a path. The score is how likely the judge thinks it's right."
-		if paths.tree {
-			hint = "Enter opens a path. The score is how promising the judge thought the idea was."
-		} else if len(paths.scores) == 0 {
+		if len(paths.scores) == 0 {
 			hint = "Enter opens a path. MetaCog kept the answer that two paths agreed on."
 		}
 		index, err := a.choose("Thought paths", hint, options, selected)

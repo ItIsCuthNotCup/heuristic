@@ -346,11 +346,14 @@ func (t *tui) metacogEvent(event metacog.Event) {
 				agree, len(event.Paths), event.Chosen+1, secs)))
 	} else if event.Tree {
 		outcome := "kept the first answer"
-		if event.Answer != "" {
-			outcome = fmt.Sprintf("expanded Thought Path %d", event.Chosen+1)
+		switch {
+		case event.Answer != "":
+			outcome = fmt.Sprintf("merged the best of %d paths into the answer", len(event.Paths))
+		case event.Chosen >= 0 && event.Chosen < len(event.Scores):
+			outcome = fmt.Sprintf("Thought Path %d (%.2f)", event.Chosen+1, event.Scores[event.Chosen])
 		}
 		line = fmt.Sprintf("%s %s %s", p.accent("◆"), p.bold("MetaCog"),
-			p.dim(fmt.Sprintf("unsure (%.2f) → sketched %d thought paths → %s · %.1fs",
+			p.dim(fmt.Sprintf("unsure (%.2f) → %d concise thought paths → %s · %.1fs",
 				event.GreedyScore, len(event.Paths), outcome, secs)))
 	} else if len(event.Scores) == 0 {
 		line = fmt.Sprintf("%s %s %s", p.accent("◆"), p.bold("MetaCog"),
@@ -383,7 +386,7 @@ func (t *tui) metacogEvent(event metacog.Event) {
 		}
 	}
 	if event.Tree && event.Answer != "" {
-		line += "\n\n" + p.accent("◆ ") + p.bold("MetaCog expanded a better path") + "\n" +
+		line += "\n\n" + p.accent("◆ ") + p.bold("MetaCog merged a better answer") + "\n" +
 			renderMarkdown(strings.TrimSpace(event.Answer), p) + "\n" +
 			p.dim("  your next message continues from it")
 	}
@@ -638,10 +641,13 @@ func (t *tui) backgroundLine(event metacog.Event) string {
 	case event.Stopped:
 		return head + p.dim(fmt.Sprintf("checked the answer: confident (%.2f) · %.1fs", event.GreedyScore, secs))
 	case event.Tree && event.Answer != "":
-		return head + fmt.Sprintf("found a better answer — sketched %d thought paths and expanded the best one",
+		return head + fmt.Sprintf("found a better answer — merged the best of %d concise thought paths",
 			len(event.Paths)) + p.dim(fmt.Sprintf(" · %.1fs", secs))
+	case event.Tree && event.Chosen >= 0:
+		return head + fmt.Sprintf("found a better answer: Thought Path %d (%.2f)",
+			event.Chosen+1, event.Scores[event.Chosen]) + p.dim(fmt.Sprintf(" · %.1fs", secs))
 	case event.Tree:
-		return head + p.dim(fmt.Sprintf("sketched %d thought paths — the first answer holds · %.1fs",
+		return head + p.dim(fmt.Sprintf("tried %d concise thought paths — the first answer holds · %.1fs",
 			len(event.Paths), secs))
 	case len(event.Agree) > 0 && event.Chosen == 0:
 		return head + p.dim(fmt.Sprintf("double-checked: %d of %d thought paths agree with the first answer · %.1fs",

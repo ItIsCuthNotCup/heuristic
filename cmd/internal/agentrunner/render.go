@@ -183,11 +183,14 @@ func (r *renderer) Event(event metacog.Event) {
 	}
 	if event.Tree {
 		outcome := "kept the first answer"
-		if event.Answer != "" {
-			outcome = fmt.Sprintf("expanded path #%d into the answer", event.Chosen+1)
+		switch {
+		case event.Answer != "":
+			outcome = fmt.Sprintf("merged the best of %d paths into the answer", len(event.Paths))
+		case event.Chosen >= 0 && event.Chosen < len(event.Scores):
+			outcome = fmt.Sprintf("picked path #%d (score %.2f)", event.Chosen+1, event.Scores[event.Chosen])
 		}
 		r.printf("%s\n", r.dim(fmt.Sprintf(
-			"◆ metacog: unsure %.2f → sketched %d paths → %s, %d judge calls, %.1fs",
+			"◆ metacog: unsure %.2f → %d concise paths → %s, %d judge calls, %.1fs",
 			event.GreedyScore, len(event.Paths), outcome, event.JudgeCalls, float64(event.DurationMs)/1000,
 		)))
 		return

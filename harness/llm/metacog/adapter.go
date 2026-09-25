@@ -58,15 +58,17 @@ type Config struct {
 	PruneChars int
 	KeepRecent int
 	// TreeDepth switches the unsure-answer branch from racing full
-	// thought paths (Vote) to a sketch tree: TreeWidth compact approach
-	// sketches per level, the judge picks the most promising, and the
-	// winning chain is expanded into the answer after at most TreeDepth
-	// levels of derivation. Default 0 (off); 2-3 is the useful range.
+	// thought paths (Vote) to concise-path fusion: each round samples
+	// TreeWidth concise candidate answers, the judge's pick wins outright
+	// at or above TreeConfidence, and otherwise the top candidates are
+	// merged into one answer after at most TreeDepth rounds. Default 0
+	// (off); 2-3 is the useful range.
 	TreeDepth int
-	// TreeWidth is how many sketches each level samples. Default 3.
+	// TreeWidth is how many candidate paths each round samples. Default 3.
 	TreeWidth int
-	// TreeConfidence expands the chain early once the level's best sketch
-	// reaches this judge score. Default 0.9.
+	// TreeConfidence is the "judge is sure" bar: a candidate — including
+	// the first answer — scoring at or above it is used outright. Default
+	// 0.8.
 	TreeConfidence float64
 }
 
@@ -111,7 +113,7 @@ func (c Config) withDefaults() Config {
 		c.TreeWidth = 3
 	}
 	if c.TreeConfidence <= 0 {
-		c.TreeConfidence = 0.9
+		c.TreeConfidence = 0.8
 	}
 	if c.Router == nil && !c.RouterOff {
 		if router, ok := c.Judge.(NoulJudge); ok {

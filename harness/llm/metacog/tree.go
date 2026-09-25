@@ -1,12 +1,13 @@
 package metacog
 
-// Sketch-tree mode: instead of racing full extra answers, MetaCog samples
-// TreeWidth compact approach sketches per level, the judge picks the most
-// promising idea, the next level derives sharper continuations of it, and
-// only the winning chain is expanded into the complete answer. Sketches
-// are a few sentences each, so the explored space costs a fraction of the
-// tokens a full-answer branch would; the judge calls are cheap
-// control-plane reads.
+// Concise-path fusion mode (HEURISTIC_TREE): instead of racing full-length
+// extra answers, MetaCog races TreeWidth concise candidate answers per round
+// (each told to stay under ~1000 tokens). The judge's pick is used outright
+// once it scores at or above TreeConfidence; when no candidate clears the
+// bar after TreeDepth rounds, one merge call steals the strongest parts of
+// the best candidates into a single answer, verified against the first
+// answer by the judge. Paths and the merge run without tool schemas — the
+// tree only runs on turns answered in prose.
 
 import (
 	"context"
@@ -19,32 +20,27 @@ import (
 )
 
 const (
-	// SketchInstructions scores an approach sketch, not a finished path.
-	SketchInstructions = `Score how promising this approach sketch is for correctly and completely handling the task, on a scale of 0 to 1. 1 means clearly the right plan; 0 means wrong, vague or likely to fail. Judge the idea, not its brevity.`
+	// concisePrompt bounds the answer text of every candidate path.
+	concisePrompt = `Answer the task now — directly and concisely, in at most about 1000 tokens. No preamble, no restating the question.`
 
-	// sketchPrompt asks the model for a compact approach outline.
-	sketchPrompt = `Before answering fully, outline your approach to the task in 1-3 short sentences. No working, no details, no final answer — just the idea you would pursue.`
-
-	// derivePrompt asks for the next derivation level of a chosen sketch.
-	derivePrompt = `Here is a partial approach for the task:
-
-%s
-
-Give one concrete next step that sharpens or continues this approach, in 1-3 short sentences. Do not give the final answer.`
-
-	// expandPrompt turns the winning sketch chain into the full answer.
-	expandPrompt = `Work the following plan out fully, step by step, and give the complete final answer:
+	// fusePrompt merges the top candidates into one answer.
+	fusePrompt = `Here are %d candidate answers to the same task. None is clearly the best. Take the strongest parts of each and write one concise final answer — at most about 1000 tokens. Only the answer, no commentary on the merge.
 
 %s`
 )
 
-// tree replaces the full-answer vote when Config.TreeDepth is set: it
-// checks the first answer, sketches TreeWidth ideas per level, follows
-// the judge's pick deeper for up to TreeDepth levels, and expands the
-// winning chain. The expanded leaf replaces the first answer only when
-// the judge scores it higher.
+// fuseTop caps how many candidates feed the merge call.
+const fuseTop = 3
+
+// tree replaces the full-answer vote when Config.TreeDepth is set. The
+// judge's choice is trusted whenever a candidate — the first answer or a
+// path — reaches TreeConfidence; below that, each round tries a fresh set
+// of concise paths, and a merge call fuses the best of them as the last
+// resort. A fused answer replaces the first answer only when the judge
+// scores it higher.
 func (a *Adapter) tree(ctx context.Context, req llm.Request, opts llm.RequestOptions, greedy llm.Response, problem string, greedyTime time.Duration, event *Event, judgeCalls *int, emit func(), background bool) llm.Response {
 	event.Tree = true
+	event.Chosen = -1 // a path index only when one is actually used
 
 	a.setStage("checking the answer")
 	s0, err := a.judgeWithin(ctx, problem, []string{responseText(greedy)}, nil)
@@ -53,7 +49,7 @@ func (a *Adapter) tree(ctx context.Context, req llm.Request, opts llm.RequestOpt
 		return greedy // judge unavailable: degrade to the plain adapter
 	}
 	event.GreedyScore = s0[0]
-	if s0[0] >= a.cfg.TrustConfidence {
+	if s0[0] >= a.cfg.TreeConfidence {
 		event.Stopped = true
 		emit()
 		return greedy
@@ -61,44 +57,9 @@ func (a *Adapter) tree(ctx context.Context, req llm.Request, opts llm.RequestOpt
 
 	budget := max(time.Duration(float64(greedyTime)*a.cfg.BranchTimeFactor), a.cfg.MinBranchTime)
 	width := min(a.cfg.TreeWidth, a.pathBudget(req))
-	var spent []llm.Response // sketch and expansion calls already paid for
-	var chain []string       // the judge's winning sketch per level
-
-	for level := 0; level < a.cfg.TreeDepth && ctx.Err() == nil; level++ {
-		prompt := sketchPrompt
-		if level > 0 {
-			prompt = fmt.Sprintf(derivePrompt, chain[level-1])
-		}
-		if level == 0 {
-			a.setStage(fmt.Sprintf("sketching %d thought paths", width))
-		} else {
-			a.setStage(fmt.Sprintf("sketching %d continuations of the best idea", width))
-		}
-		texts, resps := a.sketches(ctx, req, opts, prompt, width, budget)
-		spent = append(spent, resps...)
-		event.Branches += len(resps)
-		if len(texts) == 0 {
-			break
-		}
-		instructions := SketchInstructions
-		scores, serr := a.judgeWithin(ctx, problem, texts, &instructions)
-		*judgeCalls += len(texts)
-		if serr != nil || len(scores) != len(texts) {
-			break
-		}
-		pick := argmax(scores)
-		if level == 0 {
-			event.Paths = texts
-			event.Scores = scores
-			event.Chosen = pick
-		}
-		chain = append(chain, texts[pick])
-		if scores[pick] >= a.cfg.TreeConfidence {
-			break // confident in the plan: expand it
-		}
-	}
-	event.PoolSize = len(event.Paths)
-	event.ExtraUsage = sumUsage(llm.Usage{}, spent)
+	var spent []llm.Response // path and merge calls already paid for
+	var texts []string       // every candidate path, all rounds
+	var scores []float64     // each candidate's judge score
 
 	finish := func(resp llm.Response) llm.Response {
 		usage := sumUsage(greedy.Usage, spent)
@@ -108,54 +69,103 @@ func (a *Adapter) tree(ctx context.Context, req llm.Request, opts llm.RequestOpt
 		return resp
 	}
 
-	if len(chain) == 0 {
-		return finish(greedy)
+	for round := 0; round < a.cfg.TreeDepth && ctx.Err() == nil; round++ {
+		a.setStage(fmt.Sprintf("trying %d concise thought paths", width))
+		fresh, resps := a.candidates(ctx, req, opts, concisePrompt, width, budget)
+		spent = append(spent, resps...)
+		event.Branches += len(resps)
+		if len(fresh) == 0 {
+			break
+		}
+		roundScores, serr := a.judgeWithin(ctx, problem, fresh, nil)
+		*judgeCalls += len(fresh)
+		if serr != nil || len(roundScores) != len(fresh) {
+			break
+		}
+		texts = append(texts, fresh...)
+		scores = append(scores, roundScores...)
+		event.Paths = texts
+		event.Scores = scores
+		if best := argmax(scores); scores[best] >= a.cfg.TreeConfidence {
+			event.Chosen = best
+			event.PoolSize = len(texts)
+			if background && ctx.Err() == nil {
+				a.UsePath(responseText(greedy), texts[best])
+				event.switched = true
+			}
+			return finish(candidateResponse(spent, texts[best]))
+		}
+	}
+	event.PoolSize = len(event.Paths)
+
+	best := -1
+	bestScore := 0.0
+	if len(scores) > 0 {
+		best = argmax(scores)
+		bestScore = scores[best]
 	}
 
-	a.setStage("expanding the best thought path")
-	expanded, err := a.inner.Respond(ctx, expandRequest(req, chain), opts)
-	if err == nil {
-		spent = append(spent, expanded)
+	// No candidate cleared the bar: fuse the strongest parts of the top
+	// candidates into one concise answer and let the judge verify it.
+	if len(texts) > 0 {
+		a.setStage("merging the best parts of the thought paths")
+		fused, ferr := a.inner.Respond(ctx, fuseRequest(req, texts, scores), opts)
+		if ferr == nil && isFinalResponse(fused) {
+			spent = append(spent, fused)
+			fusedText := responseText(fused)
+			sFused, jerr := a.judgeWithin(ctx, problem, []string{fusedText}, nil)
+			*judgeCalls++
+			if jerr == nil && len(sFused) == 1 && sFused[0] > s0[0] && sFused[0] >= bestScore {
+				event.Answer = fusedText
+				event.Chosen = best
+				if background && ctx.Err() == nil {
+					a.UsePath(responseText(greedy), fusedText)
+					event.switched = true
+				}
+				return finish(fused)
+			}
+		} else if ferr == nil {
+			spent = append(spent, fused)
+		}
 	}
-	if err != nil || !isFinalResponse(expanded) {
-		return finish(greedy)
-	}
-	expandedText := responseText(expanded)
 
-	// The expanded leaf replaces the first answer only when the judge
-	// scores it higher; expanding a mediocre plan must not beat it.
-	sExp, err := a.judgeWithin(ctx, problem, []string{expandedText}, nil)
-	*judgeCalls++
-	if err != nil || len(sExp) != 1 || sExp[0] <= s0[0] {
-		return finish(greedy)
+	// A path still beat the first answer even without clearing the bar.
+	if bestScore > s0[0] {
+		event.Chosen = best
+		if background && ctx.Err() == nil {
+			a.UsePath(responseText(greedy), texts[best])
+			event.switched = true
+		}
+		return finish(candidateResponse(spent, texts[best]))
 	}
-	event.Answer = expandedText
-	if background && ctx.Err() == nil {
-		a.UsePath(responseText(greedy), expandedText)
-		event.switched = true
-	}
-	return finish(expanded)
+	return finish(greedy)
 }
 
-// sketches samples n compact approach outlines for prompt at once. Texts
-// are the judgeable (final) ones; resps carries every call for usage.
-// Tool schemas are stripped: an outline never needs to act.
-func (a *Adapter) sketches(ctx context.Context, req llm.Request, opts llm.RequestOptions, prompt string, n int, budget time.Duration) (texts []string, resps []llm.Response) {
+// candidateResponse finds the response carrying text among the spent calls.
+func candidateResponse(spent []llm.Response, text string) llm.Response {
+	for _, resp := range spent {
+		if responseText(resp) == text {
+			return resp
+		}
+	}
+	return llm.Response{Output: []llm.Item{{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: text}}}}
+}
+
+// candidates samples n concise answers for prompt at once. Texts are the
+// judgeable (final) ones; resps carries every call for usage. Tool schemas
+// are stripped: a path under judgment never needs to act.
+func (a *Adapter) candidates(ctx context.Context, req llm.Request, opts llm.RequestOptions, prompt string, n int, budget time.Duration) (texts []string, resps []llm.Response) {
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
-	sketchReq := appendUser(req, prompt)
-	sketchReq.Tools = nil
-	// Outlines must stay cheap: a sketch at the routed effort still does a
-	// full internal reasoning pass, which is the cost the tree exists to
-	// avoid. Only the final expansion earns the model's full effort.
-	sketchReq.Model.ReasoningEffort = llm.ReasoningEffortLow
+	pathReq := appendUser(req, prompt)
+	pathReq.Tools = nil
 	results := make([]llm.Response, n)
 	var wg sync.WaitGroup
 	for i := range n {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			resp, err := a.inner.Respond(ctx, sketchReq, opts)
+			resp, err := a.inner.Respond(ctx, pathReq, opts)
 			if err == nil {
 				results[i] = resp
 			}
@@ -174,23 +184,39 @@ func (a *Adapter) sketches(ctx context.Context, req llm.Request, opts llm.Reques
 	return texts, resps
 }
 
-// appendUser returns req with one extra trailing user message; the sketch,
-// derive and expand instructions ride on it.
+// fuseRequest asks the model to merge the top-scoring candidates into one
+// concise final answer.
+func fuseRequest(req llm.Request, texts []string, scores []float64) llm.Request {
+	top := fuseTop
+	if len(texts) < top {
+		top = len(texts)
+	}
+	// top indices by score, descending
+	idx := make([]int, len(scores))
+	for i := range idx {
+		idx[i] = i
+	}
+	for i := 0; i < len(idx); i++ {
+		for j := i + 1; j < len(idx); j++ {
+			if scores[idx[j]] > scores[idx[i]] {
+				idx[i], idx[j] = idx[j], idx[i]
+			}
+		}
+	}
+	var b strings.Builder
+	for i := 0; i < top; i++ {
+		fmt.Fprintf(&b, "Candidate %d:\n%s\n\n", i+1, texts[idx[i]])
+	}
+	req = appendUser(req, fmt.Sprintf(fusePrompt, top, strings.TrimSpace(b.String())))
+	req.Tools = nil // the tree only runs on turns answered without tools
+	return req
+}
+
+// appendUser returns req with one extra trailing user message; the concise
+// and merge instructions ride on it.
 func appendUser(req llm.Request, text string) llm.Request {
 	input := make([]llm.Item, len(req.Input), len(req.Input)+1)
 	copy(input, req.Input)
 	req.Input = append(input, llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleUser, Text: text}})
-	return req
-}
-
-// expandRequest asks the model to work the chosen sketch chain into the
-// full answer.
-func expandRequest(req llm.Request, chain []string) llm.Request {
-	var plan strings.Builder
-	for i, sketch := range chain {
-		fmt.Fprintf(&plan, "%d. %s\n", i+1, sketch)
-	}
-	req = appendUser(req, fmt.Sprintf(expandPrompt, strings.TrimSpace(plan.String())))
-	req.Tools = nil // the tree only runs on turns answered without tools
 	return req
 }

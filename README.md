@@ -56,8 +56,8 @@ Environment:
 | `HEURISTIC_STOP_CONFIDENCE` | `0.95` | v0.3 loop: judge score above which the first answer is kept |
 | `HEURISTIC_N_MIN` / `N_MAX` | `2` / `6` | v0.3 loop: branch count bounds, scaled by judge uncertainty |
 | `HEURISTIC_VOTE` | `3` (`off` for the v0.3 loop) | extra paths raced after an answer; the first answer two paths agree on wins |
-| `HEURISTIC_TREE` | `off` (`on` = 3 levels, or a depth number) | experimental sketch tree: compact idea paths instead of full-answer branches |
-| `HEURISTIC_TREE_WIDTH` | `3` | sketches sampled per tree level |
+| `HEURISTIC_TREE` | `off` (`on` = 3 rounds, or a round count) | experimental concise-path fusion: short candidate answers instead of full-length branches |
+| `HEURISTIC_TREE_WIDTH` | `3` | candidate paths sampled per round |
 | `HEURISTIC_ANSWER_PRIOR` | `0.5` (`none` disables) | weight of the bare-answer score |
 | `HEURISTIC_JEV_API_KEY` | falls back to `TYPESAFE_API_KEY` | Jev key |
 | `HEURISTIC_EFFORT` | `on` (`off` disables) | Jev scores how hard each new message looks and lowers reasoning effort for easy ones; it never raises your setting |
@@ -103,27 +103,25 @@ generated once, then each policy replayed on the same paths), the vote got
 time and 0.9× its tokens; in `heu` you see the first answer after a single
 answer's time either way.
 
-#### The sketch tree (experimental, `HEURISTIC_TREE=on`)
+#### The concise-path fusion tree (experimental, `HEURISTIC_TREE=on`)
 
-Instead of racing whole answers, the tree mode explores the space of
-*approaches* — each thought path is only a 1–3 sentence sketch, so a level
-of three paths costs a fraction of one full answer:
+Instead of racing whole answers at full length, the tree races *concise*
+candidates — each path is told to answer in at most ~1000 tokens — and
+lets Jev decide which ideas are worth keeping:
 
-1. Judge the first answer as usual. Confident → stop.
-2. Sketch `HEURISTIC_TREE_WIDTH` (3) compact ideas of how to solve it —
-   no working, no final answer.
-3. Jev scores every sketch and the best idea spawns another level of
-   sharper continuations, up to `HEURISTIC_TREE` levels deep (default 3).
-   A level-1 sketch Jev is already confident in (`≥ 0.9`) expands at once.
-4. The winning chain — sketch → its derivations — is expanded into the
-   full answer; it only replaces the first answer when Jev scores the
-   expansion higher.
+1. Judge the first answer. `≥ 0.8` → Jev is sure; use it and stop.
+2. Otherwise race `HEURISTIC_TREE_WIDTH` (3) concise candidate answers in
+   parallel and Jev scores each. The best one at `≥ 0.8` is used outright.
+3. Still unsure → try a fresh round of concise paths, up to
+   `HEURISTIC_TREE` rounds (default 3).
+4. If no candidate ever clears the bar, one merge call takes the strongest
+   parts of the top-scoring paths and writes a single concise answer —
+   Jev-verified against the first answer, which wins on a tie or loss.
 
-The first-level sketches show up as the thought paths (with their Jev
-score) you can open with Ctrl+T — they are read-only, since a sketch is
-not a finished answer to continue from. Sketches and the expansion are
-sent without tool schemas; the tree only runs on turns the model answered
-in prose. `HEURISTIC_TREE=off` (default) keeps the vote behaviour.
+The paths show up as the thought paths (with their Jev score) you can open
+with Ctrl+T — they are read-only. Paths and the merge call are sent
+without tool schemas; the tree only runs on turns the model answered in
+prose. `HEURISTIC_TREE=off` (default) keeps the vote behaviour.
 
 Only turns that end with an answer are judged; turns that call tools pass
 straight through, so a normal agent loop costs the same as without MetaCog.

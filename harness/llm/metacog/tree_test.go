@@ -8,25 +8,62 @@ import (
 	"github.com/ItIsCuthNotCup/heuristic/harness/llm"
 )
 
-// TestTreeExpandsWinningSketch runs the full loop: unsure first answer →
-// level-1 sketches → level-2 derivation (best l1 score below confidence)
-// → expand → expanded beats greedy.
-func TestTreeExpandsWinningSketch(t *testing.T) {
+// TestTreeFusesWhenNothingConfident runs the full loop: unsure first
+// answer → concise paths, none at the bar → merge → fused answer beats
+// greedy.
+func TestTreeFusesWhenNothingConfident(t *testing.T) {
 	inner := &recordingInner{fakeInner: fakeInner{responses: []llm.Response{
 		messageResponse("r0", "greedy answer"),
-		messageResponse("s1", "idea one"),
-		messageResponse("s2", "idea two"),
-		messageResponse("s3", "idea three"),
-		messageResponse("d1", "refine"),
-		messageResponse("d2", "refine more"),
-		messageResponse("d3", "refine least"),
-		messageResponse("exp", "expanded answer"),
+		messageResponse("p1", "path one"),
+		messageResponse("p2", "path two"),
+		messageResponse("p3", "path three"),
+		messageResponse("fused", "merged answer"),
 	}}}
 	judge := &fakeJudge{batches: [][]float64{
 		{0.4},            // greedy: unsure
-		{0.3, 0.85, 0.5}, // level 1: winner < 0.9 → derive
-		{0.95, 0.4, 0.6}, // level 2: winner ≥ 0.9 → expand
-		{0.9},            // expanded beats 0.4
+		{0.5, 0.6, 0.55}, // round 1: none reaches 0.8 → merge
+		{0.9},            // fused beats 0.4 and the best path
+	}}
+	var events []Event
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, TreeDepth: 1,
+		Trace: func(e Event) { events = append(events, e) }})
+	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ID != "fused" {
+		t.Fatalf("got %q, want the merged answer", resp.ID)
+	}
+	// 1 greedy + 3 paths + 1 merge — one round is enough when the merge lands.
+	if got := inner.calls.Load(); got != 5 {
+		t.Fatalf("inner calls = %d, want 5", got)
+	}
+	if got := judge.calls.Load(); got != 3 {
+		t.Fatalf("judge calls = %d, want 3", got)
+	}
+	if len(events) != 1 || !events[0].Tree || len(events[0].Paths) != 3 || events[0].Answer != "merged answer" {
+		t.Fatalf("event = %+v", events[0])
+	}
+	// The merge request carries the candidate answers.
+	last := inner.requests[len(inner.requests)-1]
+	msg, ok := last.Input[len(last.Input)-1].Data.(llm.Message)
+	if !ok || !strings.Contains(msg.Text, "path two") || !strings.Contains(msg.Text, "Candidate") {
+		t.Fatalf("merge request = %+v", last.Input[len(last.Input)-1])
+	}
+	if len(last.Tools) != 0 {
+		t.Fatalf("merge request kept %d tools", len(last.Tools))
+	}
+}
+
+// TestTreePicksConfidentPath stops as soon as a path clears the bar — no
+// merge call, no second round.
+func TestTreePicksConfidentPath(t *testing.T) {
+	inner := &fakeInner{responses: []llm.Response{
+		messageResponse("r0", "greedy"),
+		messageResponse("p1", "p1"), messageResponse("p2", "p2"), messageResponse("p3", "p3"),
+	}}
+	judge := &fakeJudge{batches: [][]float64{
+		{0.4}, {0.5, 0.85, 0.4},
 	}}
 	var events []Event
 	a := New(inner, Config{Judge: judge, Mode: ModeFinal, TreeDepth: 3,
@@ -35,41 +72,25 @@ func TestTreeExpandsWinningSketch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.ID != "exp" {
-		t.Fatalf("got %q, want the expanded answer", resp.ID)
-	}
-	// 1 greedy + 3 + 3 sketches + 1 expansion.
-	if got := inner.calls.Load(); got != 8 {
-		t.Fatalf("inner calls = %d, want 8", got)
-	}
-	if got := judge.calls.Load(); got != 4 {
-		t.Fatalf("judge calls = %d, want 4", got)
-	}
-	if len(events) != 1 || !events[0].Tree || len(events[0].Paths) != 3 || events[0].Answer != "expanded answer" {
+	// Concurrent path calls land in any slot, so compare the chosen text,
+	// not a fake response ID: the winner is scores' argmax (index 1).
+	if len(events) != 1 || events[0].Chosen != 1 {
 		t.Fatalf("event = %+v", events[0])
 	}
-	// The level-2 derive requests must quote the level-1 winning sketch;
-	// concurrent sketch calls make which text landed at index 1 unknown,
-	// so any sketch text satisfies the check.
-	found := false
-	for _, req := range inner.requests[4:7] {
-		if msg, ok := req.Input[len(req.Input)-1].Data.(llm.Message); ok && strings.Contains(msg.Text, "idea") {
-			found = true
-		}
+	if got := responseText(resp); got != events[0].Paths[1] {
+		t.Fatalf("got %q, want the confident path %q", got, events[0].Paths[1])
 	}
-	if !found {
-		t.Fatal("no level-2 request quoted a level-1 sketch")
+	if got := inner.calls.Load(); got != 4 {
+		t.Fatalf("inner calls = %d, want 4 (no merge)", got)
 	}
-	// The expansion request carries the numbered chain.
-	last := inner.requests[len(inner.requests)-1]
-	if msg, ok := last.Input[len(last.Input)-1].Data.(llm.Message); !ok || !strings.Contains(msg.Text, "refine") {
-		t.Fatalf("expand request = %+v", last.Input[len(last.Input)-1])
+	if got := judge.calls.Load(); got != 2 {
+		t.Fatalf("judge calls = %d, want 2", got)
 	}
 }
 
 func TestTreeKeepsGreedyWhenConfident(t *testing.T) {
 	inner := &fakeInner{responses: []llm.Response{messageResponse("r0", "sure")}}
-	judge := &fakeJudge{batches: [][]float64{{0.99}}}
+	judge := &fakeJudge{batches: [][]float64{{0.85}}}
 	a := New(inner, Config{Judge: judge, Mode: ModeFinal, TreeDepth: 3})
 	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
 	if err != nil {
@@ -80,18 +101,47 @@ func TestTreeKeepsGreedyWhenConfident(t *testing.T) {
 	}
 }
 
-func TestTreeKeepsGreedyWhenExpandedLoses(t *testing.T) {
+// TestTreeSecondRoundWhenAllWeak: round 1 all below the bar, round 2
+// clears it → the round-2 winner is used with no merge call.
+func TestTreeSecondRoundWhenAllWeak(t *testing.T) {
 	inner := &fakeInner{responses: []llm.Response{
 		messageResponse("r0", "greedy"),
-		messageResponse("s1", "i1"), messageResponse("s2", "i2"), messageResponse("s3", "i3"),
-		messageResponse("exp", "expanded"),
+		messageResponse("a1", "a1"), messageResponse("a2", "a2"), messageResponse("a3", "a3"),
+		messageResponse("b1", "b1"), messageResponse("b2", "b2"), messageResponse("b3", "b3"),
 	}}
 	judge := &fakeJudge{batches: [][]float64{
-		{0.6},            // greedy: unsure
-		{0.95, 0.4, 0.3}, // level 1 winner ≥ 0.9 → expand at once
-		{0.5},            // expanded scores worse → keep greedy
+		{0.4}, {0.5, 0.4, 0.3}, {0.6, 0.82, 0.5},
 	}}
-	a := New(inner, Config{Judge: judge, Mode: ModeFinal, TreeDepth: 3})
+	var events []Event
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, TreeDepth: 3,
+		Trace: func(e Event) { events = append(events, e) }})
+	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Chosen != 4 || len(events[0].Paths) != 6 {
+		t.Fatalf("event = %+v", events[0])
+	}
+	if got := responseText(resp); got != events[0].Paths[4] {
+		t.Fatalf("got %q, want the round-2 winner %q", got, events[0].Paths[4])
+	}
+	if got := inner.calls.Load(); got != 7 {
+		t.Fatalf("inner calls = %d, want 7 (two rounds, no merge)", got)
+	}
+}
+
+// TestTreeKeepsGreedyWhenFusedLoses: fusion is a last resort, not a free
+// upgrade — a merge that scores below greedy must not replace it.
+func TestTreeKeepsGreedyWhenFusedLoses(t *testing.T) {
+	inner := &fakeInner{responses: []llm.Response{
+		messageResponse("r0", "greedy"),
+		messageResponse("p1", "p1"), messageResponse("p2", "p2"), messageResponse("p3", "p3"),
+		messageResponse("fused", "fused"),
+	}}
+	judge := &fakeJudge{batches: [][]float64{
+		{0.7}, {0.4, 0.6, 0.5}, {0.5},
+	}}
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, TreeDepth: 1})
 	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -100,20 +150,46 @@ func TestTreeKeepsGreedyWhenExpandedLoses(t *testing.T) {
 		t.Fatalf("got %q, want greedy", resp.ID)
 	}
 	if got := inner.calls.Load(); got != 5 {
-		t.Fatalf("inner calls = %d, want 5 (no level 2)", got)
+		t.Fatalf("inner calls = %d, want 5", got)
 	}
 }
 
-func TestTreeStripsToolsFromSketchAndExpand(t *testing.T) {
+// TestTreePicksBestPathWhenMergeFails: even under the bar, a path that
+// still outscores greedy is used when the merge produces nothing better.
+func TestTreePicksBestPathWhenMergeFails(t *testing.T) {
+	inner := &fakeInner{responses: []llm.Response{
+		messageResponse("r0", "greedy"),
+		messageResponse("p1", "p1"), messageResponse("p2", "p2"), messageResponse("p3", "p3"),
+		messageResponse("fused", "fused"),
+	}}
+	judge := &fakeJudge{batches: [][]float64{
+		{0.3}, {0.4, 0.7, 0.5}, {0.4}, // fused loses to the best path (0.7)
+	}}
+	var events []Event
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, TreeDepth: 1,
+		Trace: func(e Event) { events = append(events, e) }})
+	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Chosen != 1 {
+		t.Fatalf("event = %+v", events[0])
+	}
+	if got := responseText(resp); got != events[0].Paths[1] {
+		t.Fatalf("got %q, want the best path %q", got, events[0].Paths[1])
+	}
+}
+
+func TestTreeStripsToolsFromPathsAndMerge(t *testing.T) {
 	inner := &recordingInner{fakeInner: fakeInner{responses: []llm.Response{
 		messageResponse("r0", "greedy"),
-		messageResponse("s1", "i1"), messageResponse("s2", "i2"), messageResponse("s3", "i3"),
-		messageResponse("exp", "expanded"),
+		messageResponse("p1", "p1"), messageResponse("p2", "p2"), messageResponse("p3", "p3"),
+		messageResponse("fused", "fused"),
 	}}}
 	judge := &fakeJudge{batches: [][]float64{
-		{0.4}, {0.95, 0.4, 0.3}, {0.9},
+		{0.4}, {0.5, 0.6, 0.4}, {0.9},
 	}}
-	a := New(inner, Config{Judge: judge, Mode: ModeFinal, TreeDepth: 3})
+	a := New(inner, Config{Judge: judge, Mode: ModeFinal, TreeDepth: 1})
 	req := testRequest()
 	req.Tools = []llm.Tool{{Type: llm.ToolFunction, Name: "Bash"}}
 	if _, err := a.Respond(context.Background(), req, llm.RequestOptions{}); err != nil {
@@ -127,14 +203,9 @@ func TestTreeStripsToolsFromSketchAndExpand(t *testing.T) {
 			t.Fatalf("call %d kept %d tools", i+1, len(req.Tools))
 		}
 	}
-	// Sketches run at low effort so the outline stays cheap; the expansion
-	// keeps whatever effort was routed for the turn.
-	for i, req := range inner.requests[1:4] {
-		if req.Model.ReasoningEffort != llm.ReasoningEffortLow {
-			t.Fatalf("sketch call %d effort = %q, want low", i+1, req.Model.ReasoningEffort)
-		}
-	}
-	if got := inner.requests[len(inner.requests)-1].Model.ReasoningEffort; got != "" {
-		t.Fatalf("expand effort = %q, want the routed (unchanged) effort", got)
+	// The path instruction asks for a concise answer.
+	if msg, ok := inner.requests[1].Input[len(inner.requests[1].Input)-1].Data.(llm.Message); !ok ||
+		!strings.Contains(msg.Text, "1000 tokens") {
+		t.Fatalf("concise instruction missing: %+v", inner.requests[1].Input[len(inner.requests[1].Input)-1])
 	}
 }
