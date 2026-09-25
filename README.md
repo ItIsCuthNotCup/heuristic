@@ -56,6 +56,8 @@ Environment:
 | `HEURISTIC_STOP_CONFIDENCE` | `0.95` | v0.3 loop: judge score above which the first answer is kept |
 | `HEURISTIC_N_MIN` / `N_MAX` | `2` / `6` | v0.3 loop: branch count bounds, scaled by judge uncertainty |
 | `HEURISTIC_VOTE` | `3` (`off` for the v0.3 loop) | extra paths raced after an answer; the first answer two paths agree on wins |
+| `HEURISTIC_TREE` | `off` (`on` = 3 levels, or a depth number) | experimental sketch tree: compact idea paths instead of full-answer branches |
+| `HEURISTIC_TREE_WIDTH` | `3` | sketches sampled per tree level |
 | `HEURISTIC_ANSWER_PRIOR` | `0.5` (`none` disables) | weight of the bare-answer score |
 | `HEURISTIC_JEV_API_KEY` | falls back to `TYPESAFE_API_KEY` | Jev key |
 | `HEURISTIC_EFFORT` | `on` (`off` disables) | Jev scores how hard each new message looks and lowers reasoning effort for easy ones; it never raises your setting |
@@ -100,6 +102,28 @@ generated once, then each policy replayed on the same paths), the vote got
 127 right vs 125 for v0.3 and 119 for a single answer, in about 0.85× v0.3's
 time and 0.9× its tokens; in `heu` you see the first answer after a single
 answer's time either way.
+
+#### The sketch tree (experimental, `HEURISTIC_TREE=on`)
+
+Instead of racing whole answers, the tree mode explores the space of
+*approaches* — each thought path is only a 1–3 sentence sketch, so a level
+of three paths costs a fraction of one full answer:
+
+1. Judge the first answer as usual. Confident → stop.
+2. Sketch `HEURISTIC_TREE_WIDTH` (3) compact ideas of how to solve it —
+   no working, no final answer.
+3. Jev scores every sketch and the best idea spawns another level of
+   sharper continuations, up to `HEURISTIC_TREE` levels deep (default 3).
+   A level-1 sketch Jev is already confident in (`≥ 0.9`) expands at once.
+4. The winning chain — sketch → its derivations — is expanded into the
+   full answer; it only replaces the first answer when Jev scores the
+   expansion higher.
+
+The first-level sketches show up as the thought paths (with their Jev
+score) you can open with Ctrl+T — they are read-only, since a sketch is
+not a finished answer to continue from. Sketches and the expansion are
+sent without tool schemas; the tree only runs on turns the model answered
+in prose. `HEURISTIC_TREE=off` (default) keeps the vote behaviour.
 
 Only turns that end with an answer are judged; turns that call tools pass
 straight through, so a normal agent loop costs the same as without MetaCog.

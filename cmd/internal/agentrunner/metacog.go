@@ -20,6 +20,8 @@ type MetaCogRequest struct {
 	// Vote is how many extra paths race after a final answer; "off" uses
 	// the v0.3 judge-first loop.
 	Vote string `json:"vote"`
+	// Tree switches branching to the sketch tree: "on"/"off" or a depth.
+	Tree string `json:"tree"`
 }
 
 // resolveMetaCog builds the metacog adapter Config from the environment,
@@ -34,9 +36,13 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 	nMax := lookupEnv(getenv, "N_MAX")
 	prior := lookupEnv(getenv, "ANSWER_PRIOR")
 	vote := lookupEnv(getenv, "VOTE")
+	tree := lookupEnv(getenv, "TREE")
 	if req != nil {
 		if req.Vote != "" {
 			vote = req.Vote
+		}
+		if req.Tree != "" {
+			tree = req.Tree
 		}
 		if req.Judge != "" {
 			judge = req.Judge
@@ -132,6 +138,23 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 		cfg.Vote, err = strconv.Atoi(vote)
 		if err != nil || cfg.Vote < 1 {
 			return cfg, "", fmt.Errorf("HEURISTIC_VOTE must be a positive number or off, got %q", vote)
+		}
+	}
+	// The sketch tree: compact thought paths instead of full-answer
+	// branches. "on" gives 3 levels; a number sets the depth.
+	switch {
+	case strings.EqualFold(tree, "on"):
+		cfg.TreeDepth = 3
+	case tree != "" && !strings.EqualFold(tree, "off"):
+		cfg.TreeDepth, err = strconv.Atoi(tree)
+		if err != nil || cfg.TreeDepth < 1 {
+			return cfg, "", fmt.Errorf("HEURISTIC_TREE must be on, off or a depth, got %q", tree)
+		}
+	}
+	if width := lookupEnv(getenv, "TREE_WIDTH"); width != "" {
+		cfg.TreeWidth, err = strconv.Atoi(width)
+		if err != nil || cfg.TreeWidth < 1 {
+			return cfg, "", fmt.Errorf("HEURISTIC_TREE_WIDTH must be a positive number, got %q", width)
 		}
 	}
 	// The Jev control plane: effort routing, context pruning and the

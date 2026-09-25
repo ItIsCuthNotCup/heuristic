@@ -57,6 +57,17 @@ type Config struct {
 	// last KeepRecent items always stay verbatim (default 12).
 	PruneChars int
 	KeepRecent int
+	// TreeDepth switches the unsure-answer branch from racing full
+	// thought paths (Vote) to a sketch tree: TreeWidth compact approach
+	// sketches per level, the judge picks the most promising, and the
+	// winning chain is expanded into the answer after at most TreeDepth
+	// levels of derivation. Default 0 (off); 2-3 is the useful range.
+	TreeDepth int
+	// TreeWidth is how many sketches each level samples. Default 3.
+	TreeWidth int
+	// TreeConfidence expands the chain early once the level's best sketch
+	// reaches this judge score. Default 0.9.
+	TreeConfidence float64
 }
 
 func (c Config) withDefaults() Config {
@@ -96,6 +107,12 @@ func (c Config) withDefaults() Config {
 	if c.KeepRecent <= 0 {
 		c.KeepRecent = 12
 	}
+	if c.TreeWidth <= 0 {
+		c.TreeWidth = 3
+	}
+	if c.TreeConfidence <= 0 {
+		c.TreeConfidence = 0.9
+	}
 	if c.Router == nil && !c.RouterOff {
 		if router, ok := c.Judge.(NoulJudge); ok {
 			c.Router = router
@@ -134,6 +151,14 @@ type Event struct {
 	Background bool `json:"background,omitempty"`
 	// ExtraUsage is what the extra thought paths cost.
 	ExtraUsage llm.Usage `json:"-"`
+	// Tree reports the decision came from the sketch tree: Paths holds
+	// the level-1 approach sketches and Chosen the branch that was
+	// expanded. Tree paths are read-only — there is no finished alternate
+	// answer to continue from.
+	Tree bool `json:"tree,omitempty"`
+	// Answer is the expanded final answer when a tree leaf beat the first
+	// answer (background mode shows it).
+	Answer string `json:"-"`
 
 	switched bool
 }
@@ -268,6 +293,9 @@ func (a *Adapter) think(ctx context.Context, req llm.Request, opts llm.RequestOp
 		event.Skipped = true
 		emit()
 		return greedy
+	}
+	if a.cfg.TreeDepth > 0 && isFinalResponse(greedy) {
+		return a.tree(ctx, req, opts, greedy, problem, greedyTime, &event, &judgeCalls, emit, background)
 	}
 	if a.cfg.Vote > 0 && isFinalResponse(greedy) {
 		return a.vote(ctx, req, opts, greedy, problem, greedyTime, &event, &judgeCalls, emit, background)
