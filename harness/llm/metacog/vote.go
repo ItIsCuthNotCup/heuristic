@@ -42,7 +42,7 @@ func statedAnswer(text string) string {
 // the first answer; at TrustConfidence or above the extra paths are
 // cancelled. When no two paths agree the judge picks, as in the v0.3 loop.
 func (a *Adapter) vote(ctx context.Context, req llm.Request, opts llm.RequestOptions, greedy llm.Response, problem string, greedyTime time.Duration, event *Event, judgeCalls *int, emit func(), background bool) llm.Response {
-	k := a.cfg.Vote
+	k := min(a.cfg.Vote, a.pathBudget(req))
 	event.Branches = k
 	budget := max(time.Duration(float64(greedyTime)*a.cfg.BranchTimeFactor), a.cfg.MinBranchTime)
 	runCtx, cancel := context.WithTimeout(ctx, budget)
