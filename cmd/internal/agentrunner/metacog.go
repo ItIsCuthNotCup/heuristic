@@ -134,10 +134,14 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 			return cfg, "", fmt.Errorf("HEURISTIC_VOTE must be a positive number or off, got %q", vote)
 		}
 	}
-	// The Jev control plane: effort routing and context pruning. It runs
-	// whenever a NoulJudge is configured, even with thinking off.
+	// The Jev control plane: effort routing, context pruning and the
+	// pure-chat tool gate. It runs whenever a NoulJudge is configured,
+	// even with thinking off.
 	if strings.EqualFold(lookupEnv(getenv, "EFFORT"), "off") || strings.EqualFold(lookupEnv(getenv, "ROUTER"), "off") {
 		cfg.RouterOff = true
+	}
+	if strings.EqualFold(lookupEnv(getenv, "TOOLS"), "off") {
+		cfg.ToolGateOff = true
 	}
 	if prune := lookupEnv(getenv, "PRUNE_CHARS"); strings.EqualFold(prune, "off") {
 		cfg.PruneChars = -1

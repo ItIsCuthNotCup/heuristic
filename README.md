@@ -59,6 +59,7 @@ Environment:
 | `HEURISTIC_ANSWER_PRIOR` | `0.5` (`none` disables) | weight of the bare-answer score |
 | `HEURISTIC_JEV_API_KEY` | falls back to `TYPESAFE_API_KEY` | Jev key |
 | `HEURISTIC_EFFORT` | `on` (`off` disables) | Jev scores how hard each new message looks and lowers reasoning effort for easy ones; it never raises your setting |
+| `HEURISTIC_TOOLS` | `on` (`off` disables) | Jev judges whether a turn needs tools; pure-chat turns are sent without tool schemas |
 | `HEURISTIC_PRUNE_CHARS` | `48000` (`off` disables) | once the conversation is bigger than this, Jev scores each old tool output and stubs the irrelevant ones |
 | `UNREAL_HARNESS_*` | — | upstream names still work as fallbacks |
 
@@ -85,6 +86,11 @@ this:
    bare final answer are scored and the highest
    `path score + 0.5 × bare-answer score` wins.
 
+How many paths actually race depends on how hard Jev judges the request:
+trivial asks run no extra paths (the first answer is returned directly),
+moderate ones up to 2, hard ones the full 3 — MoE-style sparse activation
+over thought paths. `HEURISTIC_EFFORT=off` disables that routing too.
+
 `HEURISTIC_VOTE=off` restores the MetaCog v0.3 loop: judge the first answer,
 keep it at 0.95, else write `round(2 + (1 − score) × 4)` more paths and let
 the judge pick.
@@ -97,6 +103,24 @@ answer's time either way.
 
 Only turns that end with an answer are judged; turns that call tools pass
 straight through, so a normal agent loop costs the same as without MetaCog.
+
+#### The Jev control plane
+
+Before every model call, Jev (the cheap judge, ~70–500 ms per question)
+makes three decisions, each cached so one user message is judged once:
+
+- **How hard is this request?** Easy requests run at lower reasoning effort
+  and race fewer thought paths; hard ones keep your configured effort.
+- **Does it need tools?** Pure-chat turns are sent without tool schemas,
+  which otherwise ride along on every call and every path.
+- **Which old context still matters?** Once the transcript passes
+  `HEURISTIC_PRUNE_CHARS`, each old tool output is scored against the
+  conversation skeleton and the recent requests: relevant chunks stay
+  verbatim, borderline ones keep their first 400 characters, dead ones
+  become a one-line stub. Subsequent turns and thought paths reuse the
+  compacted transcript, so history stops being re-read in full (the
+  fast-jev-compaction pattern: extractive keep/drop, never a lossy
+  summary). A judge outage keeps everything verbatim.
 
 ### Staying fast
 
