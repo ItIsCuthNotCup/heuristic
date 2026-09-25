@@ -58,6 +58,8 @@ Environment:
 | `HEURISTIC_VOTE` | `3` (`off` for the v0.3 loop) | extra paths raced after an answer; the first answer two paths agree on wins |
 | `HEURISTIC_ANSWER_PRIOR` | `0.5` (`none` disables) | weight of the bare-answer score |
 | `HEURISTIC_JEV_API_KEY` | falls back to `TYPESAFE_API_KEY` | Jev key |
+| `HEURISTIC_EFFORT` | `on` (`off` disables) | Jev scores how hard each new message looks and lowers reasoning effort for easy ones; it never raises your setting |
+| `HEURISTIC_PRUNE_CHARS` | `48000` (`off` disables) | once the conversation is bigger than this, Jev scores each old tool output and stubs the irrelevant ones |
 | `UNREAL_HARNESS_*` | — | upstream names still work as fallbacks |
 
 Measured (from [MetaCog](https://github.com/ItIsCuthNotCup/MetaCog) v0.3 on

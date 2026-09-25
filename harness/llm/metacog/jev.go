@@ -110,6 +110,39 @@ func (j *Jev) score(ctx context.Context, problem string, candidates []string, in
 	})
 }
 
+// Noul scores one arbitrary question about a piece of content; it backs
+// the adapter's cheap control-plane calls (effort routing, pruning).
+func (j *Jev) Noul(ctx context.Context, problem, subject, instructions string) (float64, error) {
+	body := map[string]any{
+		"model": j.cfg.Model,
+		"state": map[string]any{
+			"problem": problem,
+			"subject": truncatePath(subject, j.cfg.MaxCharsPerPath),
+		},
+		"questions": map[string]any{
+			"score": map[string]any{
+				"type":         "noul",
+				"instructions": instructions,
+			},
+		},
+	}
+	data, err := j.post(ctx, body)
+	if err != nil {
+		return 0, err
+	}
+	var parsed struct {
+		Answers struct {
+			Score struct {
+				Noul float64 `json:"noul"`
+			} `json:"score"`
+		} `json:"answers"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return 0, &JudgeError{fmt.Sprintf("decode systemone response: %v", err)}
+	}
+	return parsed.Answers.Score.Noul, nil
+}
+
 // Same asks whether paths a and b reach the same final answer.
 func (j *Jev) Same(ctx context.Context, problem, a, b string) (float64, error) {
 	half := j.cfg.MaxCharsPerPath / 2

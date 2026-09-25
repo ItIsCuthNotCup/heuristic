@@ -41,6 +41,18 @@ type Config struct {
 	// SameThreshold is the SameJudge score from which two paths without a
 	// stated final answer count as agreeing. Default 0.7.
 	SameThreshold float64
+	// Router is the cheap judge used for control-plane work around a turn:
+	// it lowers reasoning effort for easy requests and decides which old
+	// transcript chunks may be stubbed. Defaults to Judge when it
+	// implements NoulJudge; RouterOff disables routing and pruning.
+	Router    NoulJudge
+	RouterOff bool
+	// PruneChars replaces old tool outputs the router finds irrelevant
+	// with stubs once the request transcript grows past this many
+	// characters. Default 48000; <= 0 disables. The system message and the
+	// last KeepRecent items always stay verbatim (default 12).
+	PruneChars int
+	KeepRecent int
 }
 
 func (c Config) withDefaults() Config {
@@ -73,6 +85,17 @@ func (c Config) withDefaults() Config {
 	}
 	if c.SameThreshold <= 0 {
 		c.SameThreshold = 0.7
+	}
+	if c.PruneChars == 0 {
+		c.PruneChars = 48000
+	}
+	if c.KeepRecent <= 0 {
+		c.KeepRecent = 12
+	}
+	if c.Router == nil && !c.RouterOff {
+		if router, ok := c.Judge.(NoulJudge); ok {
+			c.Router = router
+		}
 	}
 	return c
 }
@@ -115,13 +138,15 @@ type Adapter struct {
 	inner llm.Adapter
 	cfg   Config
 
-	mu    sync.Mutex
-	swaps map[string]string
-	check func() // cancels the running background check
+	mu       sync.Mutex
+	swaps    map[string]string
+	check    func()                           // cancels the running background check
+	efforts  map[[32]byte]llm.ReasoningEffort // routed effort per user message
+	verdicts map[[32]byte]bool                // prune keep/drop per chunk
 }
 
 func New(inner llm.Adapter, cfg Config) *Adapter {
-	return &Adapter{inner: inner, cfg: cfg.withDefaults()}
+	return &Adapter{inner: inner, cfg: cfg.withDefaults(), efforts: map[[32]byte]llm.ReasoningEffort{}, verdicts: map[[32]byte]bool{}}
 }
 
 var _ llm.Adapter = (*Adapter)(nil)
@@ -161,6 +186,7 @@ func (a *Adapter) applySwaps(req llm.Request) llm.Request {
 func (a *Adapter) Respond(ctx context.Context, req llm.Request, opts llm.RequestOptions) (llm.Response, error) {
 	a.cancelCheck()
 	req = a.applySwaps(req)
+	req = a.prepare(ctx, req)
 	start := time.Now()
 	greedy, err := a.inner.Respond(ctx, req, opts)
 	if err != nil {

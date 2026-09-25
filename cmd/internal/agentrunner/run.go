@@ -489,7 +489,9 @@ func runSession(ctx context.Context, spec sessionSpec) (runErr error) {
 	}
 	var llmAdapter llm.Adapter = client
 	var mcAdapter *metacog.Adapter
-	if mcConfig.Mode != metacog.ModeOff && mcConfig.Judge != nil {
+	if mcConfig.Judge != nil {
+		// Always wrap: even with thinking off the adapter routes reasoning
+		// effort and prunes old context through the judge.
 		if !config.Interactive {
 			if _, err := fmt.Fprintf(flagOutput, "metacog: judge=%s mode=%s\n", mcJudge, mcConfig.Mode); err != nil {
 				return fmt.Errorf("write metacog notice: %w", err)
