@@ -161,6 +161,13 @@ func (r *renderer) Event(event metacog.Event) {
 		return
 	}
 	if event.Stopped {
+		if event.Skipped {
+			r.printf("%s\n", r.dim(fmt.Sprintf(
+				"◆ metacog: simple request, answered directly (%.1fs)",
+				float64(event.DurationMs)/1000,
+			)))
+			return
+		}
 		r.printf("%s\n", r.dim(fmt.Sprintf(
 			"◆ metacog: confident %.2f, no branching (%d judge call(s), %.1fs)",
 			event.GreedyScore, event.JudgeCalls, float64(event.DurationMs)/1000,
@@ -170,7 +177,14 @@ func (r *renderer) Event(event metacog.Event) {
 	if agree := countTrue(event.Agree); agree > 0 {
 		r.printf("%s\n", r.dim(fmt.Sprintf(
 			"◆ metacog: %d of %d thought paths agree → picked #%d, %d judge calls, %.1fs",
-			agree, len(event.Paths), event.Chosen, event.JudgeCalls, float64(event.DurationMs)/1000,
+			agree, len(event.Paths), event.Chosen+1, event.JudgeCalls, float64(event.DurationMs)/1000,
+		)))
+		return
+	}
+	if len(event.Scores) == 0 {
+		r.printf("%s\n", r.dim(fmt.Sprintf(
+			"◆ metacog: greedy %.2f → %d more thought paths → kept the first answer, %d judge calls, %.1fs",
+			event.GreedyScore, event.Branches, event.JudgeCalls, float64(event.DurationMs)/1000,
 		)))
 		return
 	}
@@ -180,7 +194,7 @@ func (r *renderer) Event(event metacog.Event) {
 	}
 	r.printf("%s\n", r.dim(fmt.Sprintf(
 		"◆ metacog: greedy %.2f → %d more thought paths → picked #%d (score %.2f), %d judge calls, %.1fs",
-		event.GreedyScore, event.Branches, event.Chosen, score, event.JudgeCalls, float64(event.DurationMs)/1000,
+		event.GreedyScore, event.Branches, event.Chosen+1, score, event.JudgeCalls, float64(event.DurationMs)/1000,
 	)))
 }
 

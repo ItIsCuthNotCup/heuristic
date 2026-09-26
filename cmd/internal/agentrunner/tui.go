@@ -334,7 +334,10 @@ func (t *tui) metacogEvent(event metacog.Event) {
 	p := t.p
 	secs := float64(event.DurationMs) / 1000
 	var line string
-	if event.Stopped {
+	if event.Stopped && event.Skipped {
+		line = fmt.Sprintf("%s %s %s", p.accent("◆"), p.bold("MetaCog"),
+			p.dim(fmt.Sprintf("simple request — answered directly · %.1fs", secs)))
+	} else if event.Stopped {
 		line = fmt.Sprintf("%s %s %s", p.accent("◆"), p.bold("MetaCog"),
 			p.dim(fmt.Sprintf("confident (%.2f) — kept the first answer · %.1fs", event.GreedyScore, secs)))
 	} else if agree := countTrue(event.Agree); agree > 0 {
@@ -617,6 +620,8 @@ func (t *tui) backgroundLine(event metacog.Event) string {
 	head := p.accent("◆") + " " + p.bold("MetaCog") + " "
 	secs := float64(event.DurationMs) / 1000
 	switch {
+	case event.Stopped && event.Skipped:
+		return head + p.dim(fmt.Sprintf("simple request — answered directly · %.1fs", secs))
 	case event.Stopped:
 		return head + p.dim(fmt.Sprintf("checked the answer: confident (%.2f) · %.1fs", event.GreedyScore, secs))
 	case len(event.Agree) > 0 && event.Chosen == 0:

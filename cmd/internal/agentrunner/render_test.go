@@ -98,8 +98,16 @@ func TestRendererMetaCogEvents(t *testing.T) {
 	if !strings.Contains(got, "confident 0.97, no branching (1 judge call(s), 0.3s)") {
 		t.Fatalf("stopped event = %q", got)
 	}
-	if !strings.Contains(got, "greedy 0.40 → 5 more thought paths → picked #2 (score 0.80), 9 judge calls, 2.1s") {
+	if !strings.Contains(got, "greedy 0.40 → 5 more thought paths → picked #3 (score 0.80), 9 judge calls, 2.1s") {
 		t.Fatalf("branched event = %q", got)
+	}
+
+	// Unscored paths mean the judge never ranked them, so the first answer
+	// stands; reporting "picked #1 (score 0.00)" would invent a verdict.
+	out.Reset()
+	r.Event(metacog.Event{GreedyScore: 0.84, Branches: 2, JudgeCalls: 1, DurationMs: 7400})
+	if got := out.String(); !strings.Contains(got, "greedy 0.84 → 2 more thought paths → kept the first answer, 1 judge calls, 7.4s") {
+		t.Fatalf("unscored event = %q", got)
 	}
 }
 
