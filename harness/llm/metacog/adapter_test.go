@@ -357,11 +357,14 @@ func TestExtractAnswer(t *testing.T) {
 // recordingInner records every request it is sent.
 type recordingInner struct {
 	fakeInner
+	mu       sync.Mutex
 	requests []llm.Request
 }
 
 func (r *recordingInner) Respond(ctx context.Context, req llm.Request, opts llm.RequestOptions) (llm.Response, error) {
+	r.mu.Lock()
 	r.requests = append(r.requests, req)
+	r.mu.Unlock()
 	return r.fakeInner.Respond(ctx, req, opts)
 }
 

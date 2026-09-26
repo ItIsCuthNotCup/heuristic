@@ -20,6 +20,9 @@ type MetaCogRequest struct {
 	// Vote is how many extra paths race after a final answer; "off" uses
 	// the v0.3 judge-first loop.
 	Vote string `json:"vote"`
+	// Tree switches branching to the concise-path fusion tree: "on"/"off"
+	// or a round count.
+	Tree string `json:"tree"`
 }
 
 // resolveMetaCog builds the metacog adapter Config from the environment,
@@ -34,9 +37,13 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 	nMax := lookupEnv(getenv, "N_MAX")
 	prior := lookupEnv(getenv, "ANSWER_PRIOR")
 	vote := lookupEnv(getenv, "VOTE")
+	tree := lookupEnv(getenv, "TREE")
 	if req != nil {
 		if req.Vote != "" {
 			vote = req.Vote
+		}
+		if req.Tree != "" {
+			tree = req.Tree
 		}
 		if req.Judge != "" {
 			judge = req.Judge
@@ -132,6 +139,43 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 		cfg.Vote, err = strconv.Atoi(vote)
 		if err != nil || cfg.Vote < 1 {
 			return cfg, "", fmt.Errorf("HEURISTIC_VOTE must be a positive number or off, got %q", vote)
+		}
+	}
+	// The concise-path fusion tree: short candidate answers instead of
+	// full-answer branches. "on" gives 3 rounds; a number sets the rounds.
+	switch {
+	case strings.EqualFold(tree, "on"):
+		cfg.TreeDepth = 3
+	case tree != "" && !strings.EqualFold(tree, "off"):
+		cfg.TreeDepth, err = strconv.Atoi(tree)
+		if err != nil || cfg.TreeDepth < 1 {
+			return cfg, "", fmt.Errorf("HEURISTIC_TREE must be on, off or a round count, got %q", tree)
+		}
+	}
+	if trust := lookupEnv(getenv, "TRUST_CONFIDENCE"); trust != "" {
+		cfg.TrustConfidence, err = strconv.ParseFloat(trust, 64)
+		if err != nil {
+			return cfg, "", fmt.Errorf("parse metacog trust_confidence %q: %w", trust, err)
+		}
+	}
+	if eff := lookupEnv(getenv, "TREE_EFFORT"); eff != "" {
+		cfg.TreeEffort = eff
+	}
+	// Lazy voting is the default: judge the first answer, race paths only
+	// when it's unsure — a confident turn spends no path tokens.
+	if lazy := lookupEnv(getenv, "VOTE_LAZY"); !strings.EqualFold(lazy, "off") {
+		cfg.VoteLazy = true
+	}
+	if tok := lookupEnv(getenv, "TREE_TOKENS"); tok != "" {
+		cfg.TreeTokens, err = strconv.Atoi(tok)
+		if err != nil || cfg.TreeTokens < 1 {
+			return cfg, "", fmt.Errorf("HEURISTIC_TREE_TOKENS must be a positive number, got %q", tok)
+		}
+	}
+	if width := lookupEnv(getenv, "TREE_WIDTH"); width != "" {
+		cfg.TreeWidth, err = strconv.Atoi(width)
+		if err != nil || cfg.TreeWidth < 1 {
+			return cfg, "", fmt.Errorf("HEURISTIC_TREE_WIDTH must be a positive number, got %q", width)
 		}
 	}
 	// The Jev control plane: effort routing, context pruning and the

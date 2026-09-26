@@ -1,2 +1,7 @@
 Heuristic is a fork of Unreal Agent (github.com/unreallabsai/unreal-agent), Copyright (c) 2026 Unreal Labs, MIT.
 Heuristic additions Copyright (c) 2026 Heuristic contributors, MIT.
+
+Concept-level ideas borrowed from Interference Search
+(github.com/Badtheorylabs/interference-search), Apache License 2.0:
+deduplicating near-identical candidate paths before judging, and
+per-path context diversification for parallel candidate sampling.

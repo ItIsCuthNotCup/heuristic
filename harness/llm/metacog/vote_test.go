@@ -105,6 +105,48 @@ func TestVoteStopsWhenTwoPathsAgree(t *testing.T) {
 	}
 }
 
+// TestVoteLazyNeverStartsPathsWhenConfident: with VoteLazy the judge
+// answers first, so a confident first answer spends zero path calls.
+func TestVoteLazyNeverStartsPathsWhenConfident(t *testing.T) {
+	inner := &scriptInner{texts: []string{"Answer: 1", "", "", ""}, delays: []time.Duration{0, -1, -1, -1}}
+	var events []Event
+	a := voteAdapter(inner, &constJudge{score: 0.99}, &events, func(c *Config) { c.VoteLazy = true })
+	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ID == "" {
+		t.Fatal("no response")
+	}
+	if got := inner.calls.Load(); got != 1 {
+		t.Fatalf("inner calls = %d, want 1 (paths never started)", got)
+	}
+	if len(events) != 1 || !events[0].Stopped || events[0].GreedyScore != 0.99 {
+		t.Fatalf("event = %+v", events)
+	}
+}
+
+// TestVoteLazyStillRacesWhenUnsure: an unsure first answer falls through
+// to the race even in lazy mode.
+func TestVoteLazyStillRacesWhenUnsure(t *testing.T) {
+	inner := &scriptInner{
+		texts:  []string{"Answer: 42", "Answer: 42", "", ""},
+		delays: []time.Duration{0, time.Millisecond, -1, -1},
+	}
+	var events []Event
+	a := voteAdapter(inner, &constJudge{score: 0.5}, &events, func(c *Config) { c.VoteLazy = true })
+	resp, err := a.Respond(context.Background(), testRequest(), llm.RequestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if responseText(resp) != "Answer: 42" {
+		t.Fatalf("resp = %q", responseText(resp))
+	}
+	if got := inner.calls.Load(); got < 2 {
+		t.Fatalf("inner calls = %d, want greedy + raced paths", got)
+	}
+}
+
 func TestVoteTrustsAVeryConfidentFirstAnswer(t *testing.T) {
 	inner := &scriptInner{texts: []string{"Answer: 1", "", "", ""}, delays: []time.Duration{0, -1, -1, -1}}
 	var events []Event

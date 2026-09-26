@@ -44,6 +44,27 @@ func statedAnswer(text string) string {
 func (a *Adapter) vote(ctx context.Context, req llm.Request, opts llm.RequestOptions, greedy llm.Response, problem string, greedyTime time.Duration, event *Event, judgeCalls *int, emit func(), background bool) llm.Response {
 	k := min(a.cfg.Vote, a.pathBudget(req))
 	event.Branches = k
+	first := responseText(greedy)
+
+	gate := make(chan float64, 1)
+	gateC := gate
+	if a.cfg.VoteLazy {
+		// Judge first: paths only run when the first answer isn't
+		// trusted, so a confident turn spends nothing beyond the judge.
+		s0, err := a.judgeWithin(ctx, problem, []string{first}, nil)
+		*judgeCalls++
+		if err != nil || len(s0) != 1 {
+			return greedy // judge unavailable: degrade to the plain adapter
+		}
+		event.GreedyScore = s0[0]
+		if s0[0] >= a.cfg.TrustConfidence {
+			event.Stopped = true
+			emit()
+			return greedy
+		}
+		gateC = nil
+	}
+
 	budget := max(time.Duration(float64(greedyTime)*a.cfg.BranchTimeFactor), a.cfg.MinBranchTime)
 	runCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
@@ -59,16 +80,16 @@ func (a *Adapter) vote(ctx context.Context, req llm.Request, opts llm.RequestOpt
 			results <- resp
 		}()
 	}
-	first := responseText(greedy)
-	gate := make(chan float64, 1)
-	go func() {
-		scores, err := a.judgeWithin(runCtx, problem, []string{first}, nil)
-		if err != nil || len(scores) != 1 {
-			gate <- -1
-			return
-		}
-		gate <- scores[0]
-	}()
+	if !a.cfg.VoteLazy {
+		go func() {
+			scores, err := a.judgeWithin(runCtx, problem, []string{first}, nil)
+			if err != nil || len(scores) != 1 {
+				gate <- -1
+				return
+			}
+			gate <- scores[0]
+		}()
+	}
 
 	pool := []llm.Response{greedy}
 	texts := []string{first}
@@ -86,7 +107,6 @@ func (a *Adapter) vote(ctx context.Context, req llm.Request, opts llm.RequestOpt
 		return selected
 	}
 
-	gateC := gate
 	for pending := k; pending > 0; {
 		select {
 		case score := <-gateC:

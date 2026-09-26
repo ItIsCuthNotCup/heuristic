@@ -36,8 +36,21 @@ type Config struct {
 	// when none do. Default 3; < 0 uses the v0.3 judge-first loop.
 	Vote int
 	// TrustConfidence skips the vote when the judge scores the first
-	// answer at least this high. Default 0.98.
+	// answer at least this high. Default 0.8 — measured well-calibrated
+	// on GPQA-30 (every stopped answer was correct).
 	TrustConfidence float64
+	// VoteLazy judges the first answer before starting the extra paths
+	// instead of racing them in parallel: confident answers never spend
+	// path tokens, unsure answers wait a judge call longer. Default off.
+	VoteLazy bool
+	// TreeEffort caps the reasoning effort of tree candidate and merge
+	// calls when set (e.g. "medium"); the routed effort applies when
+	// empty or invalid.
+	TreeEffort string
+	// TreeTokens is the per-candidate answer budget written into the
+	// prompt. Default 1000; ~200 with TreeWidth 10-20 is the swarm
+	// configuration.
+	TreeTokens int
 	// SameThreshold is the SameJudge score from which two paths without a
 	// stated final answer count as agreeing. Default 0.7.
 	SameThreshold float64
@@ -57,6 +70,19 @@ type Config struct {
 	// last KeepRecent items always stay verbatim (default 12).
 	PruneChars int
 	KeepRecent int
+	// TreeDepth switches the unsure-answer branch from racing full
+	// thought paths (Vote) to concise-path fusion: each round samples
+	// TreeWidth concise candidate answers, the judge's pick wins outright
+	// at or above TreeConfidence, and otherwise the top candidates are
+	// merged into one answer after at most TreeDepth rounds. Default 0
+	// (off); 2-3 is the useful range.
+	TreeDepth int
+	// TreeWidth is how many candidate paths each round samples. Default 3.
+	TreeWidth int
+	// TreeConfidence is the "judge is sure" bar: a candidate — including
+	// the first answer — scoring at or above it is used outright. Default
+	// 0.8.
+	TreeConfidence float64
 }
 
 func (c Config) withDefaults() Config {
@@ -85,7 +111,7 @@ func (c Config) withDefaults() Config {
 		c.Vote = 3
 	}
 	if c.TrustConfidence <= 0 {
-		c.TrustConfidence = 0.98
+		c.TrustConfidence = 0.8
 	}
 	if c.SameThreshold <= 0 {
 		c.SameThreshold = 0.7
@@ -95,6 +121,18 @@ func (c Config) withDefaults() Config {
 	}
 	if c.KeepRecent <= 0 {
 		c.KeepRecent = 12
+	}
+	if c.TreeWidth <= 0 {
+		c.TreeWidth = 3
+	}
+	if c.TreeConfidence <= 0 {
+		c.TreeConfidence = 0.8
+	}
+	if !llm.ReasoningEffort(c.TreeEffort).Valid() {
+		c.TreeEffort = ""
+	}
+	if c.TreeTokens <= 0 {
+		c.TreeTokens = 1000
 	}
 	if c.Router == nil && !c.RouterOff {
 		if router, ok := c.Judge.(NoulJudge); ok {
@@ -134,6 +172,14 @@ type Event struct {
 	Background bool `json:"background,omitempty"`
 	// ExtraUsage is what the extra thought paths cost.
 	ExtraUsage llm.Usage `json:"-"`
+	// Tree reports the decision came from the sketch tree: Paths holds
+	// the level-1 approach sketches and Chosen the branch that was
+	// expanded. Tree paths are read-only — there is no finished alternate
+	// answer to continue from.
+	Tree bool `json:"tree,omitempty"`
+	// Answer is the expanded final answer when a tree leaf beat the first
+	// answer (background mode shows it).
+	Answer string `json:"-"`
 
 	switched bool
 }
@@ -268,6 +314,9 @@ func (a *Adapter) think(ctx context.Context, req llm.Request, opts llm.RequestOp
 		event.Skipped = true
 		emit()
 		return greedy
+	}
+	if a.cfg.TreeDepth > 0 && isFinalResponse(greedy) {
+		return a.tree(ctx, req, opts, greedy, problem, greedyTime, &event, &judgeCalls, emit, background)
 	}
 	if a.cfg.Vote > 0 && isFinalResponse(greedy) {
 		return a.vote(ctx, req, opts, greedy, problem, greedyTime, &event, &judgeCalls, emit, background)

@@ -56,6 +56,12 @@ Environment:
 | `HEURISTIC_STOP_CONFIDENCE` | `0.95` | v0.3 loop: judge score above which the first answer is kept |
 | `HEURISTIC_N_MIN` / `N_MAX` | `2` / `6` | v0.3 loop: branch count bounds, scaled by judge uncertainty |
 | `HEURISTIC_VOTE` | `3` (`off` for the v0.3 loop) | extra paths raced after an answer; the first answer two paths agree on wins |
+| `HEURISTIC_TREE` | `off` (`on` = 3 rounds, or a round count) | experimental concise-path fusion: short candidate answers instead of full-length branches |
+| `HEURISTIC_TREE_WIDTH` | `3` | candidate paths sampled per round |
+| `HEURISTIC_TREE_EFFORT` | unset | cap candidate/merge reasoning effort (`low`, `medium`, `high`) |
+| `HEURISTIC_TREE_TOKENS` | `1000` | per-candidate answer budget; ~200 with width 10–20 is the swarm config |
+| `HEURISTIC_TRUST_CONFIDENCE` | `0.8` | judge score that trusts the first answer outright |
+| `HEURISTIC_VOTE_LAZY` | `on` (`off` races paths immediately) | judge the first answer before racing paths, so a confident turn spends no path tokens |
 | `HEURISTIC_ANSWER_PRIOR` | `0.5` (`none` disables) | weight of the bare-answer score |
 | `HEURISTIC_JEV_API_KEY` | falls back to `TYPESAFE_API_KEY` | Jev key |
 | `HEURISTIC_EFFORT` | `on` (`off` disables) | Jev scores how hard each new message looks and lowers reasoning effort for easy ones; it never raises your setting |
@@ -63,9 +69,21 @@ Environment:
 | `HEURISTIC_PRUNE_CHARS` | `48000` (`off` disables) | once the conversation is bigger than this, Jev scores each old tool output and stubs the irrelevant ones |
 | `UNREAL_HARNESS_*` | — | upstream names still work as fallbacks |
 
-Measured (from [MetaCog](https://github.com/ItIsCuthNotCup/MetaCog) v0.3 on
-single-answer benchmarks): 81.7% → 86.7%, +11/−2, p=0.02 on 180 paired
-GPQA/AIME rows; agentic benchmarks not yet measured. See that repo for the
+**The benchmark is the model itself** — the same Command Code model with
+no MetaCog at all. On GPQA-Diamond-30 (deepseek-v4-flash, Jev control
+plane on, agentic harness):
+
+| arm | input tokens | output tokens | accuracy |
+|---|---:|---:|---|
+| raw model, no MetaCog | 5.8k | ~20k | 24/25 answered |
+| heu, lazy vote @ 0.8 (default) | 17.0k | 165k | 26/30 |
+| heu, eager vote @ 0.8 | 16.9k | 272k | 27/30 |
+| heu, vote @ 0.98 (old default) | 25.6k | 218k | 25/30 |
+| heu, MetaCog off | 1,127k | — | 27/30 |
+
+MetaCog v0.3 on single-answer benchmarks: 81.7% → 86.7%, +11/−2, p=0.02
+on 180 paired GPQA/AIME rows; agentic benchmarks not yet measured. See
+the [MetaCog](https://github.com/ItIsCuthNotCup/MetaCog) repo for the
 method and evidence.
 
 ## Thought paths
@@ -74,9 +92,11 @@ Heuristic only thinks harder when it is unsure. Each answer turn works like
 this:
 
 1. **Answer once.** The model replies as normal.
-2. **Race 3 more paths, check the first answer meanwhile.** Three more
-   answers start at once while the judge scores the first one. If it scores
-   0.98 or above the extra paths are cancelled and the first answer stands.
+2. **Judge the first answer; race 3 more paths if unsure.** The judge
+   scores the first answer before anything else runs. At 0.8 or above it
+   stands and no path ever runs (`HEURISTIC_VOTE_LAZY=off` races the paths
+   while the judge decides instead — lower latency on unsure turns,
+   partial path spend on confident ones).
 3. **Stop when two paths agree.** As each path finishes it is compared with
    the ones before it. Paths that state a final answer (`Answer: …`,
    `\boxed{…}`) are compared directly; otherwise the judge is asked whether
@@ -100,6 +120,27 @@ generated once, then each policy replayed on the same paths), the vote got
 127 right vs 125 for v0.3 and 119 for a single answer, in about 0.85× v0.3's
 time and 0.9× its tokens; in `heu` you see the first answer after a single
 answer's time either way.
+
+#### The concise-path fusion tree (experimental, `HEURISTIC_TREE=on`)
+
+Instead of racing whole answers at full length, the tree races *concise*
+candidates — each path is told to answer in at most ~1000 tokens — and
+lets Jev decide which ideas are worth keeping:
+
+1. Judge the first answer. `≥ 0.8` → Jev is sure; use it and stop.
+2. Otherwise race `HEURISTIC_TREE_WIDTH` (3) concise candidate answers —
+   deduplicated, and with different approach hints above width 3 — in
+   parallel and Jev scores each. The best one at `≥ 0.8` is used outright.
+3. Still unsure → try a fresh round of concise paths, up to
+   `HEURISTIC_TREE` rounds (default 3).
+4. If no candidate ever clears the bar, one merge call takes the strongest
+   parts of the top-scoring paths and writes a single concise answer —
+   Jev-verified against the first answer, which wins on a tie or loss.
+
+The paths show up as the thought paths (with their Jev score) you can open
+with Ctrl+T — they are read-only. Paths and the merge call are sent
+without tool schemas; the tree only runs on turns the model answered in
+prose. `HEURISTIC_TREE=off` (default) keeps the vote behaviour.
 
 Only turns that end with an answer are judged; turns that call tools pass
 straight through, so a normal agent loop costs the same as without MetaCog.
