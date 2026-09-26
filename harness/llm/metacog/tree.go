@@ -20,8 +20,10 @@ import (
 )
 
 const (
-	// concisePrompt bounds the answer text of every candidate path.
-	concisePrompt = `Answer the task now — directly and concisely, in at most about 1000 tokens. No preamble, no restating the question.`
+	// concisePrompt bounds the answer text of every candidate path; the
+	// budget comes from Config.TreeTokens (200 for a wide micro-swarm,
+	// 1000 for a few developed answers).
+	concisePrompt = `Answer the task now — directly and concisely, in at most about %d tokens. No preamble, no restating the question.`
 
 	// fusePrompt merges the top candidates into one answer.
 	fusePrompt = `Here are %d candidate answers to the same task. None is clearly the best. Take the strongest parts of each and write one concise final answer — at most about 1000 tokens. Only the answer, no commentary on the merge.
@@ -71,7 +73,7 @@ func (a *Adapter) tree(ctx context.Context, req llm.Request, opts llm.RequestOpt
 
 	for round := 0; round < a.cfg.TreeDepth && ctx.Err() == nil; round++ {
 		a.setStage(fmt.Sprintf("trying %d concise thought paths", width))
-		fresh, resps := a.candidates(ctx, req, opts, concisePrompt, width, budget)
+		fresh, resps := a.candidates(ctx, req, opts, fmt.Sprintf(concisePrompt, a.cfg.TreeTokens), width, budget)
 		spent = append(spent, resps...)
 		event.Branches += len(resps)
 		if len(fresh) == 0 {

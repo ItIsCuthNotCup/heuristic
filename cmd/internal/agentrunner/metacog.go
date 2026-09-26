@@ -166,6 +166,12 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 	if lazy := lookupEnv(getenv, "VOTE_LAZY"); !strings.EqualFold(lazy, "off") {
 		cfg.VoteLazy = true
 	}
+	if tok := lookupEnv(getenv, "TREE_TOKENS"); tok != "" {
+		cfg.TreeTokens, err = strconv.Atoi(tok)
+		if err != nil || cfg.TreeTokens < 1 {
+			return cfg, "", fmt.Errorf("HEURISTIC_TREE_TOKENS must be a positive number, got %q", tok)
+		}
+	}
 	if width := lookupEnv(getenv, "TREE_WIDTH"); width != "" {
 		cfg.TreeWidth, err = strconv.Atoi(width)
 		if err != nil || cfg.TreeWidth < 1 {

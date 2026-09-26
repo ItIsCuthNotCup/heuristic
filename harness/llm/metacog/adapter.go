@@ -47,6 +47,10 @@ type Config struct {
 	// calls when set (e.g. "medium"); the routed effort applies when
 	// empty or invalid.
 	TreeEffort string
+	// TreeTokens is the per-candidate answer budget written into the
+	// prompt. Default 1000; ~200 with TreeWidth 10-20 is the swarm
+	// configuration.
+	TreeTokens int
 	// SameThreshold is the SameJudge score from which two paths without a
 	// stated final answer count as agreeing. Default 0.7.
 	SameThreshold float64
@@ -126,6 +130,9 @@ func (c Config) withDefaults() Config {
 	}
 	if !llm.ReasoningEffort(c.TreeEffort).Valid() {
 		c.TreeEffort = ""
+	}
+	if c.TreeTokens <= 0 {
+		c.TreeTokens = 1000
 	}
 	if c.Router == nil && !c.RouterOff {
 		if router, ok := c.Judge.(NoulJudge); ok {
