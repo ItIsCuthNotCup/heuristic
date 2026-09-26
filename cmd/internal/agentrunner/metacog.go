@@ -152,6 +152,18 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 			return cfg, "", fmt.Errorf("HEURISTIC_TREE must be on, off or a round count, got %q", tree)
 		}
 	}
+	if trust := lookupEnv(getenv, "TRUST_CONFIDENCE"); trust != "" {
+		cfg.TrustConfidence, err = strconv.ParseFloat(trust, 64)
+		if err != nil {
+			return cfg, "", fmt.Errorf("parse metacog trust_confidence %q: %w", trust, err)
+		}
+	}
+	if eff := lookupEnv(getenv, "TREE_EFFORT"); eff != "" {
+		cfg.TreeEffort = eff
+	}
+	if lazy := lookupEnv(getenv, "VOTE_LAZY"); strings.EqualFold(lazy, "on") {
+		cfg.VoteLazy = true
+	}
 	if width := lookupEnv(getenv, "TREE_WIDTH"); width != "" {
 		cfg.TreeWidth, err = strconv.Atoi(width)
 		if err != nil || cfg.TreeWidth < 1 {

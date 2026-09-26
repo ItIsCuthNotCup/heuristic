@@ -38,6 +38,14 @@ type Config struct {
 	// TrustConfidence skips the vote when the judge scores the first
 	// answer at least this high. Default 0.98.
 	TrustConfidence float64
+	// VoteLazy judges the first answer before starting the extra paths
+	// instead of racing them in parallel: confident answers never spend
+	// path tokens, unsure answers wait a judge call longer. Default off.
+	VoteLazy bool
+	// TreeEffort caps the reasoning effort of tree candidate and merge
+	// calls when set (e.g. "medium"); the routed effort applies when
+	// empty or invalid.
+	TreeEffort string
 	// SameThreshold is the SameJudge score from which two paths without a
 	// stated final answer count as agreeing. Default 0.7.
 	SameThreshold float64
@@ -114,6 +122,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.TreeConfidence <= 0 {
 		c.TreeConfidence = 0.8
+	}
+	if !llm.ReasoningEffort(c.TreeEffort).Valid() {
+		c.TreeEffort = ""
 	}
 	if c.Router == nil && !c.RouterOff {
 		if router, ok := c.Judge.(NoulJudge); ok {

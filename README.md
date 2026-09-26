@@ -58,6 +58,9 @@ Environment:
 | `HEURISTIC_VOTE` | `3` (`off` for the v0.3 loop) | extra paths raced after an answer; the first answer two paths agree on wins |
 | `HEURISTIC_TREE` | `off` (`on` = 3 rounds, or a round count) | experimental concise-path fusion: short candidate answers instead of full-length branches |
 | `HEURISTIC_TREE_WIDTH` | `3` | candidate paths sampled per round |
+| `HEURISTIC_TREE_EFFORT` | unset | cap candidate/merge reasoning effort (`low`, `medium`, `high`) |
+| `HEURISTIC_TRUST_CONFIDENCE` | `0.98` | judge score that trusts the first answer outright |
+| `HEURISTIC_VOTE_LAZY` | `off` | judge the first answer before racing paths, so a confident turn spends no path tokens |
 | `HEURISTIC_ANSWER_PRIOR` | `0.5` (`none` disables) | weight of the bare-answer score |
 | `HEURISTIC_JEV_API_KEY` | falls back to `TYPESAFE_API_KEY` | Jev key |
 | `HEURISTIC_EFFORT` | `on` (`off` disables) | Jev scores how hard each new message looks and lowers reasoning effort for easy ones; it never raises your setting |
@@ -65,9 +68,19 @@ Environment:
 | `HEURISTIC_PRUNE_CHARS` | `48000` (`off` disables) | once the conversation is bigger than this, Jev scores each old tool output and stubs the irrelevant ones |
 | `UNREAL_HARNESS_*` | — | upstream names still work as fallbacks |
 
-Measured (from [MetaCog](https://github.com/ItIsCuthNotCup/MetaCog) v0.3 on
-single-answer benchmarks): 81.7% → 86.7%, +11/−2, p=0.02 on 180 paired
-GPQA/AIME rows; agentic benchmarks not yet measured. See that repo for the
+**The benchmark is the model itself** — the same Command Code model with
+no MetaCog at all. On GPQA-Diamond-30 (deepseek-v4-flash, Jev control
+plane on, agentic harness):
+
+| arm | input tokens | accuracy |
+|---|---:|---|
+| raw model, no MetaCog | 5.8k | 24/25 answered |
+| heu, this branch | 25.6k | 25/30 |
+| heu, MetaCog off | 1,127k | 27/30 |
+
+MetaCog v0.3 on single-answer benchmarks: 81.7% → 86.7%, +11/−2, p=0.02
+on 180 paired GPQA/AIME rows; agentic benchmarks not yet measured. See
+the [MetaCog](https://github.com/ItIsCuthNotCup/MetaCog) repo for the
 method and evidence.
 
 ## Thought paths

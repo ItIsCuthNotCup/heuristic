@@ -109,7 +109,11 @@ func (a *Adapter) tree(ctx context.Context, req llm.Request, opts llm.RequestOpt
 	// candidates into one concise answer and let the judge verify it.
 	if len(texts) > 0 {
 		a.setStage("merging the best parts of the thought paths")
-		fused, ferr := a.inner.Respond(ctx, fuseRequest(req, texts, scores), opts)
+		fuseReq := fuseRequest(req, texts, scores)
+		if a.cfg.TreeEffort != "" {
+			fuseReq.Model.ReasoningEffort = llm.ReasoningEffort(a.cfg.TreeEffort)
+		}
+		fused, ferr := a.inner.Respond(ctx, fuseReq, opts)
 		if ferr == nil && isFinalResponse(fused) {
 			spent = append(spent, fused)
 			fusedText := responseText(fused)
@@ -159,6 +163,9 @@ func (a *Adapter) candidates(ctx context.Context, req llm.Request, opts llm.Requ
 	defer cancel()
 	pathReq := appendUser(req, prompt)
 	pathReq.Tools = nil
+	if a.cfg.TreeEffort != "" {
+		pathReq.Model.ReasoningEffort = llm.ReasoningEffort(a.cfg.TreeEffort)
+	}
 	results := make([]llm.Response, n)
 	var wg sync.WaitGroup
 	for i := range n {
