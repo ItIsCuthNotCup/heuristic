@@ -36,7 +36,8 @@ type Config struct {
 	// when none do. Default 3; < 0 uses the v0.3 judge-first loop.
 	Vote int
 	// TrustConfidence skips the vote when the judge scores the first
-	// answer at least this high. Default 0.98.
+	// answer at least this high. Default 0.8 — measured well-calibrated
+	// on GPQA-30 (every stopped answer was correct).
 	TrustConfidence float64
 	// VoteLazy judges the first answer before starting the extra paths
 	// instead of racing them in parallel: confident answers never spend
@@ -106,7 +107,7 @@ func (c Config) withDefaults() Config {
 		c.Vote = 3
 	}
 	if c.TrustConfidence <= 0 {
-		c.TrustConfidence = 0.98
+		c.TrustConfidence = 0.8
 	}
 	if c.SameThreshold <= 0 {
 		c.SameThreshold = 0.7

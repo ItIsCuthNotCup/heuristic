@@ -59,8 +59,8 @@ Environment:
 | `HEURISTIC_TREE` | `off` (`on` = 3 rounds, or a round count) | experimental concise-path fusion: short candidate answers instead of full-length branches |
 | `HEURISTIC_TREE_WIDTH` | `3` | candidate paths sampled per round |
 | `HEURISTIC_TREE_EFFORT` | unset | cap candidate/merge reasoning effort (`low`, `medium`, `high`) |
-| `HEURISTIC_TRUST_CONFIDENCE` | `0.98` | judge score that trusts the first answer outright |
-| `HEURISTIC_VOTE_LAZY` | `off` | judge the first answer before racing paths, so a confident turn spends no path tokens |
+| `HEURISTIC_TRUST_CONFIDENCE` | `0.8` | judge score that trusts the first answer outright |
+| `HEURISTIC_VOTE_LAZY` | `on` (`off` races paths immediately) | judge the first answer before racing paths, so a confident turn spends no path tokens |
 | `HEURISTIC_ANSWER_PRIOR` | `0.5` (`none` disables) | weight of the bare-answer score |
 | `HEURISTIC_JEV_API_KEY` | falls back to `TYPESAFE_API_KEY` | Jev key |
 | `HEURISTIC_EFFORT` | `on` (`off` disables) | Jev scores how hard each new message looks and lowers reasoning effort for easy ones; it never raises your setting |
@@ -72,11 +72,13 @@ Environment:
 no MetaCog at all. On GPQA-Diamond-30 (deepseek-v4-flash, Jev control
 plane on, agentic harness):
 
-| arm | input tokens | accuracy |
-|---|---:|---|
-| raw model, no MetaCog | 5.8k | 24/25 answered |
-| heu, this branch | 25.6k | 25/30 |
-| heu, MetaCog off | 1,127k | 27/30 |
+| arm | input tokens | output tokens | accuracy |
+|---|---:|---:|---|
+| raw model, no MetaCog | 5.8k | ~20k | 24/25 answered |
+| heu, lazy vote @ 0.8 (default) | 17.0k | 165k | 26/30 |
+| heu, eager vote @ 0.8 | 16.9k | 272k | 27/30 |
+| heu, vote @ 0.98 (old default) | 25.6k | 218k | 25/30 |
+| heu, MetaCog off | 1,127k | — | 27/30 |
 
 MetaCog v0.3 on single-answer benchmarks: 81.7% → 86.7%, +11/−2, p=0.02
 on 180 paired GPQA/AIME rows; agentic benchmarks not yet measured. See
@@ -89,9 +91,11 @@ Heuristic only thinks harder when it is unsure. Each answer turn works like
 this:
 
 1. **Answer once.** The model replies as normal.
-2. **Race 3 more paths, check the first answer meanwhile.** Three more
-   answers start at once while the judge scores the first one. If it scores
-   0.98 or above the extra paths are cancelled and the first answer stands.
+2. **Judge the first answer; race 3 more paths if unsure.** The judge
+   scores the first answer before anything else runs. At 0.8 or above it
+   stands and no path ever runs (`HEURISTIC_VOTE_LAZY=off` races the paths
+   while the judge decides instead — lower latency on unsure turns,
+   partial path spend on confident ones).
 3. **Stop when two paths agree.** As each path finishes it is compared with
    the ones before it. Paths that state a final answer (`Answer: …`,
    `\boxed{…}`) are compared directly; otherwise the judge is asked whether

@@ -161,7 +161,9 @@ func resolveMetaCog(getenv func(string) string, req *MetaCogRequest, flagValue s
 	if eff := lookupEnv(getenv, "TREE_EFFORT"); eff != "" {
 		cfg.TreeEffort = eff
 	}
-	if lazy := lookupEnv(getenv, "VOTE_LAZY"); strings.EqualFold(lazy, "on") {
+	// Lazy voting is the default: judge the first answer, race paths only
+	// when it's unsure — a confident turn spends no path tokens.
+	if lazy := lookupEnv(getenv, "VOTE_LAZY"); !strings.EqualFold(lazy, "off") {
 		cfg.VoteLazy = true
 	}
 	if width := lookupEnv(getenv, "TREE_WIDTH"); width != "" {
