@@ -59,6 +59,7 @@ Environment:
 | `HEURISTIC_TREE` | `off` (`on` = 3 rounds, or a round count) | experimental concise-path fusion: short candidate answers instead of full-length branches |
 | `HEURISTIC_TREE_WIDTH` | `3` | candidate paths sampled per round |
 | `HEURISTIC_TREE_EFFORT` | unset | cap candidate/merge reasoning effort (`low`, `medium`, `high`) |
+| `HEURISTIC_TREE_TOKENS` | `1000` | per-candidate answer budget; ~200 with width 10–20 is the swarm config |
 | `HEURISTIC_TRUST_CONFIDENCE` | `0.8` | judge score that trusts the first answer outright |
 | `HEURISTIC_VOTE_LAZY` | `on` (`off` races paths immediately) | judge the first answer before racing paths, so a confident turn spends no path tokens |
 | `HEURISTIC_ANSWER_PRIOR` | `0.5` (`none` disables) | weight of the bare-answer score |
@@ -127,7 +128,8 @@ candidates — each path is told to answer in at most ~1000 tokens — and
 lets Jev decide which ideas are worth keeping:
 
 1. Judge the first answer. `≥ 0.8` → Jev is sure; use it and stop.
-2. Otherwise race `HEURISTIC_TREE_WIDTH` (3) concise candidate answers in
+2. Otherwise race `HEURISTIC_TREE_WIDTH` (3) concise candidate answers —
+   deduplicated, and with different approach hints above width 3 — in
    parallel and Jev scores each. The best one at `≥ 0.8` is used outright.
 3. Still unsure → try a fresh round of concise paths, up to
    `HEURISTIC_TREE` rounds (default 3).

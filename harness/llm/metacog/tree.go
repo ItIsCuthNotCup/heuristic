@@ -31,6 +31,18 @@ const (
 %s`
 )
 
+// approachHints diversify a wide swarm: identical prompts resample the
+// same line, so each path takes a different angle (idea borrowed from
+// interference-search, Apache-2.0 — same-context resamples repeat).
+var approachHints = []string{
+	"Approach it rigorously and step by step.",
+	"Take the simplest direct approach.",
+	"Double-check the key step before committing.",
+	"Try an unconventional angle.",
+	"Reason from first principles.",
+	"Work backwards from the required answer format.",
+}
+
 // fuseTop caps how many candidates feed the merge call.
 const fuseTop = 3
 
@@ -73,9 +85,18 @@ func (a *Adapter) tree(ctx context.Context, req llm.Request, opts llm.RequestOpt
 
 	for round := 0; round < a.cfg.TreeDepth && ctx.Err() == nil; round++ {
 		a.setStage(fmt.Sprintf("trying %d concise thought paths", width))
-		fresh, resps := a.candidates(ctx, req, opts, fmt.Sprintf(concisePrompt, a.cfg.TreeTokens), width, budget)
+		base := fmt.Sprintf(concisePrompt, a.cfg.TreeTokens)
+		prompts := make([]string, width)
+		for i := range prompts {
+			prompts[i] = base
+			if width > 3 {
+				prompts[i] += " " + approachHints[i%len(approachHints)]
+			}
+		}
+		fresh, resps := a.candidates(ctx, req, opts, prompts, budget)
 		spent = append(spent, resps...)
 		event.Branches += len(resps)
+		fresh = dedup(fresh)
 		if len(fresh) == 0 {
 			break
 		}
@@ -157,23 +178,23 @@ func candidateResponse(spent []llm.Response, text string) llm.Response {
 	return llm.Response{Output: []llm.Item{{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleAssistant, Text: text}}}}
 }
 
-// candidates samples n concise answers for prompt at once. Texts are the
+// candidates samples one concise answer per prompt at once. Texts are the
 // judgeable (final) ones; resps carries every call for usage. Tool schemas
 // are stripped: a path under judgment never needs to act.
-func (a *Adapter) candidates(ctx context.Context, req llm.Request, opts llm.RequestOptions, prompt string, n int, budget time.Duration) (texts []string, resps []llm.Response) {
+func (a *Adapter) candidates(ctx context.Context, req llm.Request, opts llm.RequestOptions, prompts []string, budget time.Duration) (texts []string, resps []llm.Response) {
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
-	pathReq := appendUser(req, prompt)
-	pathReq.Tools = nil
-	if a.cfg.TreeEffort != "" {
-		pathReq.Model.ReasoningEffort = llm.ReasoningEffort(a.cfg.TreeEffort)
-	}
-	results := make([]llm.Response, n)
+	results := make([]llm.Response, len(prompts))
 	var wg sync.WaitGroup
-	for i := range n {
+	for i := range prompts {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			pathReq := appendUser(req, prompts[i])
+			pathReq.Tools = nil
+			if a.cfg.TreeEffort != "" {
+				pathReq.Model.ReasoningEffort = llm.ReasoningEffort(a.cfg.TreeEffort)
+			}
 			resp, err := a.inner.Respond(ctx, pathReq, opts)
 			if err == nil {
 				results[i] = resp
@@ -228,4 +249,22 @@ func appendUser(req llm.Request, text string) llm.Request {
 	copy(input, req.Input)
 	req.Input = append(input, llm.Item{Type: llm.ItemMessage, Data: llm.Message{Role: llm.RoleUser, Text: text}})
 	return req
+}
+
+// dedup collapses near-identical candidates before judging: a wide swarm
+// resamples the same answer several times, and scoring copies wastes
+// judge attention (idea borrowed from interference-search, Apache-2.0 —
+// branches landing on the same state merge into one).
+func dedup(texts []string) []string {
+	seen := make(map[string]bool, len(texts))
+	out := make([]string, 0, len(texts))
+	for _, t := range texts {
+		key := strings.Join(strings.Fields(strings.ToLower(t)), " ")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, t)
+	}
+	return out
 }
